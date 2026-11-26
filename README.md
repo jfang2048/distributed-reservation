@@ -11,6 +11,7 @@ Politecnico di Milano · Distributed Systems (090950) · Project 2 · 2026/2027
 - [Server roles and resource locks](docs/architecture.md)
 - [Messages and 2PC](docs/protocol.md)
 - [Logs and restart](docs/recovery.md)
+- [Deployment and network settings](docs/deployment.md)
 - [Tests and LAN demo](docs/testing.md)
 
 Java sources go in `src/`, example settings in `config/`, and tests in `tests/`.
