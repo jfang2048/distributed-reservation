@@ -4,6 +4,8 @@ A fault-tolerant distributed reservation system based on Two-Phase Commit (2PC).
 
 Politecnico di Milano · Distributed Systems (090950) · Project 2 · 2026/2027
 
+The project is at the planning stage.
+
 ## Features
 
 - Atomic reservations across independent servers
@@ -60,19 +62,18 @@ The coordinator commits when all participants vote commit, and aborts on a negat
 ## Project Structure
 
 ```text
-src/
-    Client.java
-    Server.java
-    Transport.java
-    Coordinator.java
-    Participant.java
-    ResourceManager.java
-    TransactionLog.java
-config/
-tests/
-docs/
-README.md
+src/             Java source files
+config/          Example node and resource settings
+tests/           Automated tests and crash scenarios
+docs/            Requirements, design, and demo plan
 ```
+
+## Documentation
+
+- [Requirements](docs/requirements.md)
+- [Architecture and recovery](docs/architecture.md)
+- [Test and demo plan](docs/testing.md)
+- [Contributing and Git workflow](CONTRIBUTING.md)
 
 ## Roadmap
 
