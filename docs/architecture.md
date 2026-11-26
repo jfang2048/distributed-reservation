@@ -28,14 +28,4 @@ Two competing requests can both abort. Repeated clashes can cause livelock or
 starvation. After a final abort, a client can try a fresh transaction after
 a short random delay.
 
-## Java files
-
-| File | Job |
-| --- | --- |
-| `Client.java` | Submit requests and report results. |
-| `Server.java` | Load settings and dispatch messages. |
-| `Transport.java` | Read and write TCP frames. |
-| `Coordinator.java` | Collect votes and deliver the decision. |
-| `Participant.java` | Vote and apply the decision. |
-| `ResourceManager.java` | Track items and locks. |
-| `TransactionLog.java` | Write and replay records. |
+See the [Java class layout](implementation.md#code-layout).

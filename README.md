@@ -12,15 +12,9 @@ Politecnico di Milano · Distributed Systems (090950) · Project 2 · 2026/2027
 - [Messages and 2PC](docs/protocol.md)
 - [Logs and restart](docs/recovery.md)
 - [Deployment and network settings](docs/deployment.md)
+- [Implementation plan](docs/implementation.md)
 - [Tests and LAN demo](docs/testing.md)
 
 Java sources go in `src/`, example settings in `config/`, and tests in `tests/`.
 
-## Next steps
-
-Target weeks start with implementation.
-
-1. **Week 1** — Build TCP framing and log replay.
-2. **Week 2** — Get commit and abort working on one laptop.
-3. **Week 3** — Add recovery, retries, and crash tests.
-4. **Week 4** — Test concurrent requests, rehearse on two laptops, and prepare slides.
+Start with [TCP framing and log replay](docs/implementation.md#build-order).

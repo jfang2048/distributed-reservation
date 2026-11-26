@@ -2,8 +2,9 @@
 
 ## Log format
 
-Each node appends to its own log under `run/`. Serialize appends and tag
-records by role. A frame is a four-byte big-endian payload length, up to
+Each node appends to a log in its
+[configured directory](deployment.md#shared-settings). Serialize appends and
+tag records by role. A frame is a four-byte big-endian payload length, up to
 1 MiB, then the payload and a four-byte CRC32 over the length and payload.
 The payload starts with version `1`, role, record type, and transaction key.
 Use the [TCP field encoding](protocol.md#tcp-messages) for the record data.
