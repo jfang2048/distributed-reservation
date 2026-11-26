@@ -26,13 +26,23 @@ disk and forced records survive a restart. See
 
 ## Replay
 
-Replay before serving requests.
+Replay before serving requests. For each transaction the coordinator started,
+its last record tells it what to do.
 
-- **Coordinator.** If the log ends a transaction at `START_2PC`, force
-  abort. If it has a decision and is still waiting for `END`, resend the
-  decision to all participants, including the local role. ACKs can be
-  collected again. A retry after a lost client reply returns the same result
-  once all ACKs arrive.
+```mermaid
+flowchart TD
+    Last{"Last coordinator record?"}
+    Last -->|START_2PC| Abort["Force GLOBAL_ABORT"]
+    Last -->|GLOBAL_COMMIT or GLOBAL_ABORT| Resend["Send the decision to all participants"]
+    Abort --> Resend
+    Resend --> Finish["Collect all ACKs, then force END"]
+    Last -->|END| Saved["Return the saved result on retry"]
+    Finish --> Saved
+```
+
+Decision delivery includes the local participant when the coordinator has
+both roles.
+
 - **Participant.** Rebuild committed items and locks for unresolved yes
   votes. `INIT` alone restores the request state. Ask for decisions on
   transactions still in `READY` and ACK repeated decisions after replay.

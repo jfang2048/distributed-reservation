@@ -30,18 +30,26 @@ Check node IDs and addresses against configuration.
 
 ## Prepare and decide
 
-1. The coordinator forces `START_2PC` before sending `PREPARE`.
-2. The participant forces `INIT`, tries to lock its items, and forces its
-   vote before replying. A yes vote moves it to `READY`. A duplicate prepare
-   reuses the saved vote.
-3. The coordinator commits after a yes from every participant. It aborts on
-   a no vote or vote timeout. It forces the decision before sending it.
-4. Each participant forces the decision, applies it, releases its locks,
-   and sends `ACK`. It repeats the ACK on redelivery. Commit requires a
-   saved yes vote. Abort can arrive first and closes the key to late prepares.
-5. The coordinator counts each vote and matching ACK once per listed
-   participant. It retries delivery and forces `END` after all ACKs, then
-   returns the result. A retry before `END` can return `PENDING`.
+In the diagram, **force** means write the record to stable storage.
+
+```mermaid
+flowchart TD
+    Start["Coordinator forces START_2PC, then sends PREPARE"]
+    Vote["Each participant forces INIT, tries locks, then forces and sends its vote"]
+    Start --> Vote --> Choice{"All participants voted yes?"}
+    Choice -->|All yes| Commit["Force GLOBAL_COMMIT"]
+    Choice -->|Vote abort or timeout| Abort["Force GLOBAL_ABORT"]
+    Commit --> Send["Coordinator sends the decision"]
+    Abort --> Send
+    Send --> Apply["Each participant forces the decision, applies it, releases locks, and sends ACK"]
+    Apply --> Done["After all ACKs, force END and reply to the client"]
+```
+
+- A yes vote puts a participant in `READY` and lets it accept commit. An
+  early abort closes the key to late prepares.
+- Participants reuse saved votes and ACKs on redelivery. The coordinator
+  counts each once per listed participant and retries decision delivery.
+  Until `END`, a client retry can return `PENDING`.
 
 ## Decision requests
 
