@@ -1,49 +1,30 @@
-# Requirements
-
-Politecnico di Milano · Distributed Systems (090950) · 2026/2027
+# Course Requirements
 
 ## System
 
-- Servers manage separate resources. Clients can request resources from several
-  servers in one transaction.
-- Use Two-Phase Commit (2PC). One server coordinates each transaction. The
-  servers that own the requested resources take part in it.
-- Reserve either all requested resources or none. Concurrent requests must
-  never commit conflicting reservations.
-- Use stable storage for transaction logs and recover safely after a restart.
-- Test crashes at different protocol stages. Show when a reservation blocks
-  and how it resumes after recovery.
+- Use Two-Phase Commit (2PC) for requests that span servers.
+- Give each transaction a coordinator. Each server that owns a requested
+  resource takes part as a participant.
+- Commit the whole reservation or abort it. Allow concurrent requests while
+  enforcing exclusive reservations for conflicting requests.
+- Save transaction state on stable storage and recover after a server restarts.
+- Crash the coordinator and participants at several protocol stages. Show
+  when transactions block and what lets them finish.
 
 ## Failure assumptions
 
-- Servers can crash and eventually restart. They follow the protocol while
-  running.
-- Communication can be delayed or temporarily interrupted. Network partitions
-  eventually heal.
-- Each server has reliable stable storage.
-- During prepare, a server can reject a request if a resource is unavailable
-  or held by another pending reservation.
+Servers follow the protocol and eventually restart after a crash. Each
+server has reliable stable storage. Messages can be delayed, and connections
+can drop and reconnect. Partitions eventually heal. A participant can vote
+abort if a resource is unavailable or held by another transaction.
 
-## Course delivery
+## Delivery
 
-- Work in a group of two or three students.
-- Demonstrate the system on at least two laptops connected to the same LAN.
-- Use a few slides to explain the software and how it runs across the laptops.
-- Present before the last official exam session for the academic year.
+- Work in a team of two or three.
+- Demo on at least two laptops on the same wired or wireless LAN.
+- Use a few slides to show the software and where it runs.
+- Present before the last official exam session of the academic year.
 
-## Project choices
+Java projects use sockets or RMI for networking. We chose Java 17 and TCP.
 
-The course allows sockets or RMI for Java networking. This project uses
-Java 17, the standard library, and TCP sockets. TCP handles packet loss
-within a live connection. On timeout or disconnection, an application reply
-may be missing, so nodes can reconnect and retry a message. Restarts reuse
-the same node identity and log. Disk loss and corruption of previously
-forced records fall outside the stable-storage assumption.
-
-The [architecture](architecture.md) defines the resource and lock model.
-The [protocol](protocol.md) follows the 2PC state changes in slides 7–11 of
-`07-agreement.pdf`. The [test and demo plan](testing.md) covers the course
-requirements for concurrency, crash recovery, blocking, and the LAN demo.
-
-See the general rules on p. 1 and “Fault-tolerant distributed reservation
-system” on pp. 2–3 of the course handout `Progetti.pdf`.
+See `Progetti.pdf`, p. 1 for the course rules and pp. 2–3 for the assignment.

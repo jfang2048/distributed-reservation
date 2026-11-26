@@ -1,65 +1,41 @@
-# Architecture
+# Server Roles and Resource Locks
 
-This document describes project design choices. See the
-[course requirements](requirements.md) for the assignment.
+## Servers
 
-## Server roles
+Every node runs the same Java server. Configuration maps node IDs to
+TCP addresses and items to their owners. On restart, reuse these mappings
+and the node's log directory.
 
-Each node runs the same Java 17 server and owns a fixed set of resources.
-Configuration maps node IDs to TCP addresses and resource IDs to owners. Keep
-these mappings and each node's log directory the same across a restart.
+The client chooses a coordinator and retries with that same node. Item
+owners are the participants. If the coordinator owns an item in the request,
+it runs the participant steps locally and counts its own durable vote and ACK.
+Its log tags records by role.
 
-The client picks a coordinator for each new transaction and uses that
-coordinator for every retry. The owners of the requested resources are the
-participants. The coordinator can also be a participant. In that case it runs
-the same participant steps locally, counts its own durable vote and ACK, and
-keeps coordinator and participant records separate by role in its node log.
-There is no coordinator failover within a transaction.
+## Resources
 
-```mermaid
-flowchart LR
-    C[Client] -->|TCP| S[Coordinator]
-    S <-->|2PC| A[Participant A]
-    S <-->|2PC| B[Participant B]
-    A <-->|Decision request| B
-    S --- L0[(Node log)]
-    A --- L1[(Node log)]
-    B --- L2[(Node log)]
-```
+A resource is one exclusive item, such as a piece of equipment. A request
+names one or more distinct items. Each item has a single owner and stays
+reserved once committed, including after a restart.
 
-The diagram shows a transaction with a separate coordinator. The
-[protocol](protocol.md) also covers a coordinator that owns a requested item.
+During `PREPARE`, a participant checks and claims its items together in one
+short in-memory operation. It either claims the full set or votes abort if
+an item is reserved or held. Locks belong to transactions. A `READY`
+participant holds them until it records and applies the outcome. Each role
+handles state changes for a given transaction one at a time.
 
-## Resources and concurrency
+Trying locks once prevents a cycle of transactions waiting on each other.
+Two competing requests can both abort. Repeated clashes can cause livelock or
+starvation. After a final abort, a client can try a fresh transaction after
+a short random delay.
 
-A resource is one exclusive item, such as a named piece of equipment. A
-reservation names a nonempty set of unique resource IDs. Each item has one
-owner and can have at most one committed reservation. Reservations last for
-the run, including restarts. The first version has no quantity, time interval,
-or cancellation.
+## Java files
 
-A participant checks and tries to acquire all its requested items together
-during `PREPARE`. The check and update use a short local critical section with
-no network or disk I/O. If any item is committed or held by another transaction,
-the participant takes no locks and records a no vote. A reservation lock
-belongs to a transaction ID, so another handler can release it and replay
-can restore it. Each role serializes state changes for the same transaction.
-
-Participants never wait for a resource lock, so different orders of requests
-cannot form a distributed lock wait cycle. Competing requests can both abort.
-Repeated collisions can cause livelock or starvation. A client may try again
-after a final abort, with a new ID and a short randomized delay. Retries of an
-unknown outcome use the original ID. A `READY` participant still waits for a
-valid decision and keeps its locks while it waits.
-
-## Planned modules
-
-| File | Role |
+| File | Job |
 | --- | --- |
-| `Client.java` | Create transaction IDs, send requests, and show results. |
-| `Server.java` | Load settings, accept connections, and dispatch messages. |
-| `Transport.java` | Frame and exchange messages over TCP. |
-| `Coordinator.java` | Collect votes and ACKs, record decisions, and retry delivery. |
-| `Participant.java` | Vote, resolve uncertain transactions, and apply decisions. |
-| `ResourceManager.java` | Track local resources, locks, and reservations. |
-| `TransactionLog.java` | Append and replay durable records. |
+| `Client.java` | Submit requests and report results. |
+| `Server.java` | Load settings and dispatch messages. |
+| `Transport.java` | Read and write TCP frames. |
+| `Coordinator.java` | Collect votes and deliver the decision. |
+| `Participant.java` | Vote and apply the decision. |
+| `ResourceManager.java` | Track items and locks. |
+| `TransactionLog.java` | Write and replay records. |
