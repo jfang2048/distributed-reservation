@@ -12,9 +12,11 @@ Politecnico di Milano · Distributed Systems (090950) · Project 2 · 2026/2027
 - [Messages and 2PC](docs/protocol.md)
 - [Logs and restart](docs/recovery.md)
 - [Deployment and network settings](docs/deployment.md)
+- [Laptop and VM testbed](docs/testbed.md)
 - [Implementation plan](docs/implementation.md)
 - [Tests and LAN demo](docs/testing.md)
 
-Java sources go in `src/`, example settings in `config/`, and tests in `tests/`.
+Java sources go in `src/` and tests in `tests/`. Settings live in `config/`,
+local commands in `scripts/`, and VM commands in `infra/`.
 
 Start with [TCP framing and log replay](docs/implementation.md#build-order).

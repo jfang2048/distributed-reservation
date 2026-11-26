@@ -1,6 +1,8 @@
 # Tests and LAN Demo
 
-Start on one laptop with separate server processes, ports, and log directories.
+Start with the [laptop testbed](testbed.md).
+Put codec and log tests in `tests/unit/` and multi-node cases in
+`tests/integration/`.
 Record the key, fault point, votes, decision, and item state in each test.
 Restart with the same directories.
 
@@ -40,8 +42,8 @@ process. Turn the fault off before restarting.
 
 ## LAN demo
 
-1. Start the coordinator and participant A on laptop A, and participant B on
-   laptop B. Check addresses, TCP ports, firewall access, and writable log paths.
+1. Use the [deployment settings](deployment.md). Start the coordinator and
+   participant A on laptop A, and participant B on laptop B.
 2. Show a cross-server commit and two requests for the same item.
 3. Stop the coordinator after both participants reach `READY` and before it
    records a decision. Show `PENDING` replies and try a conflicting request.

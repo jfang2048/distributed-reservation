@@ -2,18 +2,9 @@
 
 ## Shared settings
 
-Save the same `config/cluster.properties` on each machine. Use Java
-`Properties.load(Reader)` with a UTF-8 reader.
-
-```properties
-node.a.host=192.168.1.21
-node.a.port=7001
-node.b.host=192.168.1.22
-node.b.port=7002
-resource.projector.owner=a
-resource.camera.owner=b
-client.coordinator=a
-```
+Copy [`config/cluster.lan.properties.example`](../config/cluster.lan.properties.example)
+to `config/cluster.properties`. Edit that file and use the same copy on each
+machine. Use Java `Properties.load(Reader)` with a UTF-8 reader.
 
 Set `node.<id>.host` to the server IP or DNS name that the client and the
 other server can reach. Set `node.<id>.port` to its reachable TCP port. Map
@@ -37,16 +28,18 @@ Set optional values in the same file.
 | --- | --- |
 | Client on a third machine, servers on two LAN machines | Enter both servers' LAN IPs. For bridged VMs, use the guest IPs. For NAT VMs, use the reachable host IPs and forwarded ports. |
 | Client shares a machine with server `a` | Use the same two LAN addresses. Server `b` uses `a`'s LAN address for peer messages. |
-| All three processes on one machine | Set both hosts and bind addresses to `127.0.0.1`. Keep ports `7001` and `7002` distinct. |
 | Servers on public hosts | Use reachable public DNS names or IPs and allow TCP from the client and peer server at each firewall. For encrypted links, connect through a VPN and enter the VPN addresses. |
 
 With NAT, forward each advertised TCP port to its server's listening port.
 Check that the addresses also work from any client or peer inside the LAN.
 
-## Command interface
+## Linux and Windows
 
-Run from the directory with `build/` and `config/`. Start one `server` per
-node and run `reserve` on the client machine.
+Use Java 17 or newer on each machine. Build the JAR with `./scripts/build.sh`
+on the development machine. Copy `build/reservation.jar` and
+`config/cluster.properties` to the same relative paths on each destination.
+Run from their parent directory in a shell or PowerShell. Start one server
+per node and run `reserve` on the client machine.
 
 ```sh
 java -jar build/reservation.jar server --node a
@@ -61,6 +54,7 @@ retry, pass `--tx-id <uuid>` with the original coordinator and items.
 ## Check the connection
 
 After startup, check both endpoints from the client and each server's
-endpoint from its peer. For example, run `nc -vz 192.168.1.22 7002` from
-the client and from server `a`. Then reserve `projector camera` through
-coordinator `a` and check that both servers record the same final decision.
+endpoint from its peer. Allow the configured TCP ports in each server's
+firewall. Use `nc -vz 192.168.1.22 7002` on Linux or
+`Test-NetConnection 192.168.1.22 -Port 7002` in PowerShell. Then reserve
+`projector camera` and check the decision on both servers.

@@ -1,7 +1,8 @@
 # Implementation Plan
 
-Build one JAR with Java 17 and the standard library. Give each class one
-job. Use Java records for messages and log entries. Load
+Build one JAR with Java 17 and the standard library. Use `reservation.Main`
+as its entry point. Give each class one job. Use Java records for messages
+and log entries. Load
 [`config/cluster.properties`](deployment.md#shared-settings) once at startup.
 
 ## Code layout

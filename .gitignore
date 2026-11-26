@@ -3,6 +3,7 @@
 /out/
 /target/
 /run/
+/config/cluster.properties
 *.class
 *.log
 /.idea/
