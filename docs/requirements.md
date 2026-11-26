@@ -31,8 +31,19 @@ Politecnico di Milano · Distributed Systems (090950) · 2026/2027
 - Use a few slides to explain the software and how it runs across the laptops.
 - Present before the last official exam session for the academic year.
 
-The project uses Java 17, the standard library, and TCP sockets. The course
-allows sockets or RMI for Java networking.
+## Project choices
+
+The course allows sockets or RMI for Java networking. This project uses
+Java 17, the standard library, and TCP sockets. TCP handles packet loss
+within a live connection. On timeout or disconnection, an application reply
+may be missing, so nodes can reconnect and retry a message. Restarts reuse
+the same node identity and log. Disk loss and corruption of previously
+forced records fall outside the stable-storage assumption.
+
+The [architecture](architecture.md) defines the resource and lock model.
+The [protocol](protocol.md) follows the 2PC state changes in slides 7–11 of
+`07-agreement.pdf`. The [test and demo plan](testing.md) covers the course
+requirements for concurrency, crash recovery, blocking, and the LAN demo.
 
 See the general rules on p. 1 and “Fault-tolerant distributed reservation
 system” on pp. 2–3 of the course handout `Progetti.pdf`.

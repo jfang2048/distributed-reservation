@@ -1,96 +1,52 @@
 # Distributed Reservation System
 
-A fault-tolerant distributed reservation system based on Two-Phase Commit (2PC). Clients reserve resources across multiple servers in a single atomic transaction.
+A planned Java 17 project for atomic reservations across multiple servers using
+Two-Phase Commit (2PC) over TCP.
 
 Politecnico di Milano · Distributed Systems (090950) · Project 2 · 2026/2027
 
-The project is at the planning stage.
+The project is at the design stage. The documents describe planned behavior.
 
-## Features
+## Design
 
-- Atomic reservations across independent servers
-- Two-Phase Commit (2PC)
-- Concurrent requests and resource locking
-- Durable transaction logging and crash recovery
-- Fault injection and blocking behavior analysis
+Each resource is a single item owned by one server. A reservation may include
+items on several servers. One server coordinates each transaction and also
+takes part as a participant if it owns a requested item. Participants try to
+lock their items during prepare and vote no if an item is unavailable.
 
-## Tech Stack
-
-Java 17, JDK standard library, TCP sockets, threads, local transaction logs, and a CLI. The system targets Linux, Windows, and macOS.
-
-## Architecture
-
-Each server manages its own resources and transaction log. Servers run the same program and act as coordinators or participants for individual transactions.
-
-```mermaid
-flowchart LR
-    C[Client] -->|TCP| S[Coordinator]
-    S <-->|2PC| A[Participant A]
-    S <-->|2PC| B[Participant B]
-    A <-->|Decision request| B
-    S --- L0[(Log)]
-    A --- L1[(Log)]
-    B --- L2[(Log)]
-```
-
-## Transaction Workflow
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as Coordinator
-    participant A as Participant A
-    participant B as Participant B
-    C->>S: RESERVE
-    Note over S: Persist START_2PC
-    S->>A: PREPARE
-    S->>B: PREPARE
-    Note over A,B: Check resources, lock, persist vote
-    A-->>S: VOTE_COMMIT
-    B-->>S: VOTE_COMMIT
-    Note over S: Persist GLOBAL_COMMIT
-    S->>A: GLOBAL_COMMIT
-    S->>B: GLOBAL_COMMIT
-    Note over A,B: Persist decision and apply reservation
-    A-->>S: ACK
-    B-->>S: ACK
-    S-->>C: COMMITTED
-```
-
-The coordinator commits when all participants vote commit, and aborts on a negative vote or a vote-collection timeout. A participant in `READY` keeps its locks until it learns the global decision. After a crash, each server replays its log to restore transaction state and resume the protocol. Transaction IDs support safe retries.
+The coordinator saves the final decision before sending it. After a yes vote,
+a participant keeps its locks until it learns the outcome. If every participant
+is waiting and no one knows the outcome, the transaction blocks until the
+coordinator recovers. The [demo plan](docs/testing.md) includes this case.
 
 ## Project Structure
 
-```text
-src/             Java source files
-config/          Example node and resource settings
-tests/           Automated tests and crash scenarios
-docs/            Requirements, design, and demo plan
-```
+| Path | Purpose |
+| --- | --- |
+| `src/` | Planned Java source files |
+| `config/` | Planned example node and resource settings |
+| `tests/` | Planned automated tests and crash scenarios |
+| `docs/` | Requirements, design, and demo plan |
 
 ## Documentation
 
-- [Requirements](docs/requirements.md)
-- [Architecture and recovery](docs/architecture.md)
-- [Test and demo plan](docs/testing.md)
+- [Course requirements](docs/requirements.md)
+- [Roles, resources, and concurrency](docs/architecture.md)
+- [Messages and 2PC](docs/protocol.md)
+- [Log and recovery](docs/recovery.md)
+- [Tests and LAN demo](docs/testing.md)
 - [Contributing and Git workflow](CONTRIBUTING.md)
 
 ## Roadmap
 
-- [ ] TCP communication and resource configuration
-- [ ] 2PC commit and abort
-- [ ] Concurrent reservations and conflict handling
-- [ ] Durable logging and recovery
-- [ ] Coordinator and participant crash tests at different protocol stages
-- [ ] Blocking behavior and recovery demonstration
-- [ ] Cross-platform LAN demonstration and architecture slides
+Target weeks are counted from the start of implementation.
 
-## References
+| Target | Milestone | Status |
+| --- | --- | --- |
+| Design | Course requirements, protocol, log design, and demo plan | Documented |
+| Week 1 | Implement TCP message framing and durable log framing and replay | Planned |
+| Week 2 | Run commit and abort over TCP on one laptop | Planned |
+| Week 3 | Recover after crashes, retry messages, and show 2PC blocking | Planned |
+| Week 4 | Test concurrent requests, rehearse on two laptops, and prepare slides | Planned |
 
-- `Progetti.pdf`, pp. 1–3 — project requirements and failure assumptions
-- `02-modeling.pdf`, slides 3–7 — system architecture
-- `03-communication.pdf`, slides 35–38 — TCP sockets
-- `06-faultTol.pdf`, slides 10–17 — communication failures and retries
-- `07-agreement.pdf`, slides 4–11 — atomic commit, 2PC, and blocking
-
-The final demo uses at least two laptops on the same LAN, with a short presentation of the software and runtime architecture, before the last official exam session of the academic year.
+Present the project before the last official exam session of the academic year.
