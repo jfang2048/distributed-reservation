@@ -41,7 +41,7 @@ prints `FAULT` with the point and transaction ID.
 | `before-decision-log` | Restart asks for the decision or takes a retried message. |
 | `after-apply` | Replay applies the result and ACKs the retry. |
 
-`kill -9` tests process recovery. A power-loss test needs a separate setup.
+A forced process exit tests process recovery. Power-loss tests use a separate setup.
 
 ## LAN demo
 

@@ -270,11 +270,14 @@ class ReservationTest(unittest.TestCase):
         key = self.key()
         expected = self.cluster.reply_prefix(4, "c", key, "b")
         self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",)), expected)
+        self.cluster.stop("b")
         saved = self.cluster.wal("b").read_bytes()
-        self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",), ("b", "a")), expected)
         self.cluster.start("b")
         self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",), ("b", "a")), expected)
+        self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",)), expected)
+        self.cluster.stop("b")
         self.assertEqual(self.cluster.wal("b").read_bytes(), saved)
+        self.cluster.start("b")
         self.assert_outcome("ABORTED", "b", ("camera",))
 
     def test_abort_before_prepare_blocks_late_prepare_after_restart(self):
@@ -282,12 +285,15 @@ class ReservationTest(unittest.TestCase):
         key = self.key()
         abort = self.cluster.exchange("b", 7, "c", key, wire_text("c"))
         self.assertEqual(self.cluster.status(abort, 8, "c", key, "b"), "ABORTED")
+        self.cluster.stop("b")
         saved = self.cluster.wal("b").read_bytes()
         self.cluster.start("b")
         self.assertEqual(self.cluster.exchange("b", 7, "c", key, wire_text("c")), abort)
         expected = self.cluster.reply_prefix(5, "c", key, "b")
         self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",)), expected)
+        self.cluster.stop("b")
         self.assertEqual(self.cluster.wal("b").read_bytes(), saved)
+        self.cluster.start("b")
         self.assert_outcome("COMMITTED", "b", ("camera",))
 
     def test_ready_participant_rejects_wrong_sender_and_mismatched_members(self):
@@ -295,25 +301,32 @@ class ReservationTest(unittest.TestCase):
         key = self.key()
         vote = self.cluster.prepare("b", "c", key, ("camera",))
         self.assertEqual(vote, self.cluster.reply_prefix(4, "c", key, "b"))
+        self.cluster.stop("b")
         saved = self.cluster.wal("b").read_bytes()
+        self.cluster.start("b")
         wrong_sender = wire_text("a")
         changed_members = wrong_sender + self.cluster.participant_list(("a", "b", "c"))
         self.assertEqual(self.cluster.exchange("b", 7, "c", key, wrong_sender), b"")
         self.assertEqual(self.cluster.exchange("b", 9, "c", key, changed_members), b"")
         self.assertEqual(self.cluster.decision_query("b", "c", "a", key), "PENDING")
+        self.cluster.stop("b")
         self.assertEqual(self.cluster.wal("b").read_bytes(), saved)
 
     def test_finished_transaction_retries_do_not_append_records(self):
         self.start("a", "b")
         items = ("projector", "camera")
         key = self.assert_outcome("COMMITTED", "a", items)
+        for node in ("a", "b"):
+            self.cluster.stop(node)
         saved = {node: self.cluster.wal(node).read_bytes() for node in ("a", "b")}
+        self.start("a", "b")
         self.assertEqual(self.cluster.reserve_once("a", items, key), "COMMITTED")
         self.assertEqual(self.cluster.reserve_once("a", ("screen",), key), "ID_CONFLICT")
         self.start("a", "b")
         self.assertEqual(self.cluster.reserve_once("a", items[::-1], key), "COMMITTED")
         self.assertEqual(self.cluster.reserve_once("a", ("screen",), key), "ID_CONFLICT")
         for node, wal in saved.items():
+            self.cluster.stop(node)
             self.assertEqual(self.cluster.wal(node).read_bytes(), wal)
 
     def test_coordinator_recovers_unknown_item_reservation_after_start(self):
@@ -484,9 +497,9 @@ class ReservationTest(unittest.TestCase):
         saved = wal.read_bytes()
         wal.write_bytes(saved + struct.pack(">i", 24) + b"short")
         self.cluster.start("a")
-        self.assertEqual(wal.read_bytes(), saved)
         self.assert_outcome("COMMITTED", "a", items, key)
         self.cluster.stop("a")
+        self.assertEqual(wal.read_bytes(), saved)
         wal.write_bytes(saved[:-1] + bytes([saved[-1] ^ 1]))
         process = self.cluster.start("a", wait_ready=False)
         self.assertNotEqual(process.wait(timeout=8), 0)
