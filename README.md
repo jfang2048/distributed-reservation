@@ -3,13 +3,12 @@
 A Java 17 reservation system. Servers use Two-Phase Commit (2PC) over TCP
 to reserve items in one transaction and recover them after a crash.
 
-Politecnico di Milano · Distributed Systems (090950) · Project 2 · 2026/2027
+Politecnico di Milano · Distributed Systems (090950) · [Project 2](docs/requirements.md) · 2026/2027
 
 ## Architecture
 
-The client sends a reservation to a coordinator over TCP. Participants vote
-and apply the decision. Each server keeps its own transaction log. A server
-can act as both coordinator and participant for the same request.
+One server can act as both coordinator and participant for the same request.
+See [server roles and locks](docs/architecture.md).
 
 ```mermaid
 flowchart LR
@@ -22,17 +21,47 @@ flowchart LR
     B --- L2[(Transaction log)]
 ```
 
+## Commit flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Coordinator
+    participant A as Participant A
+    participant B as Participant B
+    C->>S: RESERVE
+    Note over S: Force START_2PC
+    S-->>C: PENDING
+    S->>A: PREPARE
+    S->>B: PREPARE
+    Note over A,B: Force INIT, lock items, force vote
+    A-->>S: VOTE_COMMIT
+    B-->>S: VOTE_COMMIT
+    Note over S: Force GLOBAL_COMMIT
+    S->>A: GLOBAL_COMMIT
+    S->>B: GLOBAL_COMMIT
+    Note over A,B: Force decision, apply it, release locks
+    A-->>S: ACK
+    B-->>S: ACK
+    Note over S: Force END
+    C->>S: RESERVE with the same transaction ID
+    S-->>C: COMMITTED
+```
+
+See [decision rules](docs/protocol.md#prepare-and-decide) and
+[restart behavior](docs/recovery.md#replay).
+
 ## Project structure
 
 ```text
 distributed-reservation/
 ├── .gitignore
 ├── README.md
-├── config/
-│   ├── cluster.lan.properties.example
-│   ├── cluster.local.properties
-│   └── cluster.vm.properties
-├── docs/
+├── config/                            # Cluster profiles
+│   ├── cluster.lan.properties.example # Physical machines
+│   ├── cluster.local.properties       # Loopback
+│   └── cluster.vm.properties          # Two-VM lab
+├── docs/                              # Design and run guides
 │   ├── architecture.md
 │   ├── deployment.md
 │   ├── implementation.md
@@ -41,7 +70,7 @@ distributed-reservation/
 │   ├── requirements.md
 │   ├── testbed.md
 │   └── testing.md
-├── infra/
+├── infra/                             # VM setup and fault experiments
 │   ├── cloud-init.yaml
 │   ├── collect-logs.sh
 │   ├── deploy.sh
@@ -51,11 +80,11 @@ distributed-reservation/
 │   ├── provision.sh
 │   ├── reservation@.service
 │   └── reset.sh
-├── scripts/
-│   ├── build.sh
-│   ├── local.sh
-│   └── test.sh
-├── src/
+├── scripts/                           # Local development commands
+│   ├── build.sh                       # Build the JAR
+│   ├── local.sh                       # Run on loopback
+│   └── test.sh                        # Run the test suite
+├── src/                               # Java application
 │   └── reservation/
 │       ├── Client.java
 │       ├── ClusterConfig.java
@@ -74,22 +103,14 @@ distributed-reservation/
 │       ├── Type.java
 │       └── Wire.java
 └── tests/
-    ├── integration/
+    ├── integration/                   # TCP and crash tests
     │   └── test_cluster.py
-    └── unit/
+    └── unit/                          # Codec, log, and locks
         └── UnitTests.java
 ```
 
-## Docs
+## Run
 
-- [Course requirements](docs/requirements.md)
-- [Server roles and resource locks](docs/architecture.md)
-- [Messages and 2PC](docs/protocol.md)
-- [Logs and restart](docs/recovery.md)
-- [Deployment and network settings](docs/deployment.md)
-- [Laptop and VM testbed](docs/testbed.md)
-- [Implementation plan](docs/implementation.md)
-- [Tests and LAN demo](docs/testing.md)
-
-Run `./scripts/test.sh` with a JDK 17 or newer and Python 3. For a live
-run, follow the [laptop testbed](docs/testbed.md).
+Run `./scripts/test.sh` with a JDK 17 or newer and Python 3. Use the
+[laptop testbed](docs/testbed.md) or the [deployment guide](docs/deployment.md)
+to run the application.

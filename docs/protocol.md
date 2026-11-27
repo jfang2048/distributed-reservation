@@ -31,22 +31,21 @@ Check node IDs and addresses against configuration.
 
 ## Prepare and decide
 
-In the diagram, **force** means write the record to stable storage.
+The [commit flow](../README.md#commit-flow) shows the message order.
+**Force** means write the record to stable storage.
 The coordinator returns `INVALID_REQUEST` before starting a transaction if
 its log record or peer messages exceed the frame limit.
 
 ```mermaid
 flowchart TD
-    Start["Coordinator forces START_2PC, then sends PREPARE"]
-    Vote["Each participant forces INIT, tries locks, then forces and sends its vote"]
-    Start --> Vote --> Choice{"All participants voted yes?"}
-    Choice -->|All yes| Commit["Force GLOBAL_COMMIT"]
-    Choice -->|Vote abort or timeout| Abort["Force GLOBAL_ABORT"]
-    Commit --> Send["Coordinator sends the decision"]
-    Abort --> Send
-    Send --> Apply["Each participant forces the decision, applies it, releases locks, and sends ACK"]
-    Apply --> Done["After all ACKs, force END and reply to the client"]
+    Wait["Collect votes"]
+    Wait -->|Every participant voted yes before the deadline| Commit["Force GLOBAL_COMMIT"]
+    Wait -->|Abort vote or vote timeout| Abort["Force GLOBAL_ABORT"]
+    Wait -->|Still waiting within the deadline| Wait
 ```
+
+Abort follows the same delivery and ACK steps as commit. The client then
+receives `ABORTED` on retry.
 
 - A yes vote puts a participant in `READY` and lets it accept commit. An
   early abort closes the key to late prepares.
