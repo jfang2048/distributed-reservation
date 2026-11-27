@@ -3,7 +3,6 @@ package reservation;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -89,8 +88,10 @@ final class Server {
             validateEndpoints(request.participants());
             return switch (request.type()) {
                 case RESERVE -> coordinator.reserve(request);
-                case PREPARE -> participant.prepare(request);
-                case GLOBAL_COMMIT, GLOBAL_ABORT -> participant.decide(request);
+                case PREPARE, GLOBAL_COMMIT, GLOBAL_ABORT -> {
+                    require(request.sender().equals(request.id().coordinator()), "Expected coordinator as sender");
+                    yield request.type() == Type.PREPARE ? participant.prepare(request) : participant.decide(request);
+                }
                 case DECISION_REQUEST -> node.equals(request.id().coordinator())
                         ? coordinator.query(request) : participant.query(request);
                 case VOTE_COMMIT, VOTE_ABORT, ACK, RESULT, DECISION_REPLY -> null;
@@ -105,11 +106,18 @@ final class Server {
     }
 
     void validateEndpoints(List<Endpoint> endpoints) {
-        Set<String> seen = new HashSet<>();
         for (Endpoint endpoint : endpoints) {
-            require(seen.add(endpoint.id()) && config.endpoint(endpoint.id()).equals(endpoint),
+            require(config.endpoint(endpoint.id()).equals(endpoint),
                     "Invalid participant endpoint: " + endpoint.id());
         }
+    }
+
+    static boolean includes(List<Endpoint> endpoints, String node) {
+        return endpoints.stream().anyMatch(endpoint -> endpoint.id().equals(node));
+    }
+
+    static boolean sameEndpoints(List<Endpoint> left, List<Endpoint> right) {
+        return left.size() == right.size() && new HashSet<>(left).containsAll(right);
     }
 
     void persist(Entry entry) throws IOException {

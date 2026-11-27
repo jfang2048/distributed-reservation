@@ -27,7 +27,6 @@ final class Participant {
 
     Message prepare(Message request) throws IOException {
         TxId id = request.id();
-        require(request.sender().equals(id.coordinator()), "Prepare must come from the coordinator");
         require(includes(request.participants(), server.node) && owns(request.items()), "Invalid prepare items");
         Transaction tx = transactions.get(id);
         if (tx == null) {
@@ -35,7 +34,7 @@ final class Participant {
             server.persist(entry(Kind.INIT, tx));
             transactions.put(id, tx);
         } else if (!tx.endpoints.isEmpty()) {
-            require(Coordinator.sameEndpoints(tx.endpoints, request.participants())
+            require(sameEndpoints(tx.endpoints, request.participants())
                     && (tx.items.isEmpty() || tx.items.equals(request.items())),
                     "Prepare changed the participant list or items");
         }
@@ -50,7 +49,6 @@ final class Participant {
 
     Message decide(Message request) throws IOException {
         TxId id = request.id();
-        require(request.sender().equals(id.coordinator()), "Decision must come from the coordinator");
         boolean commit = request.type() == Type.GLOBAL_COMMIT;
         Transaction tx = transactions.get(id);
         require(!commit || (tx != null && Boolean.TRUE.equals(tx.vote)), "Commit requires a saved yes vote");
@@ -71,7 +69,7 @@ final class Participant {
             tx = new Transaction(id, request.participants(), List.of());
             transactions.put(id, tx);
         } else if (!tx.endpoints.isEmpty()) {
-            require(Coordinator.sameEndpoints(tx.endpoints, request.participants()), "Decision query uses a different participant list");
+            require(sameEndpoints(tx.endpoints, request.participants()), "Decision query uses a different participant list");
         }
         if (tx.vote == null && tx.decision == null) {
             recordVote(tx, false);
@@ -86,22 +84,19 @@ final class Participant {
                 continue;
             }
             tx.nextQuery = server.retryAt(now);
-            Set<Endpoint> targets = new LinkedHashSet<>();
-            targets.add(server.config.endpoint(tx.id.coordinator()));
+            Message request = new Message(Type.DECISION_REQUEST, tx.id, server.node, tx.endpoints, List.of(), "");
+            query(tx, server.config.endpoint(tx.id.coordinator()), request);
             for (Endpoint endpoint : tx.endpoints) {
-                if (!server.node.equals(endpoint.id())) {
-                    targets.add(endpoint);
+                if (!server.node.equals(endpoint.id()) && !tx.id.coordinator().equals(endpoint.id())) {
+                    query(tx, endpoint, request);
                 }
             }
-            for (Endpoint endpoint : targets) {
-                if (tx.queries.add(endpoint.id())) {
-                    Message query = new Message(Type.DECISION_REQUEST, tx.id, server.node,
-                            tx.endpoints, List.of(), "");
-                    if (!server.send(endpoint, query, reply -> learn(tx, endpoint, reply))) {
-                        tx.queries.remove(endpoint.id());
-                    }
-                }
-            }
+        }
+    }
+
+    private void query(Transaction tx, Endpoint endpoint, Message request) {
+        if (tx.queries.add(endpoint.id()) && !server.send(endpoint, request, reply -> learn(tx, endpoint, reply))) {
+            tx.queries.remove(endpoint.id());
         }
     }
 
@@ -138,10 +133,14 @@ final class Participant {
         boolean commit = COMMITTED.equals(outcome);
         server.persist(new Entry(Role.PARTICIPANT, commit ? Kind.GLOBAL_COMMIT : Kind.GLOBAL_ABORT,
                 tx.id, List.of(), tx.items));
-        resources.finish(tx.id, tx.items, commit);
+        finish(tx, outcome);
+        server.faults.hit("after-apply", tx.id);
+    }
+
+    private void finish(Transaction tx, String outcome) {
+        resources.finish(tx.id, tx.items, COMMITTED.equals(outcome));
         tx.decision = outcome;
         ready.remove(tx);
-        server.faults.hit("after-apply", tx.id);
     }
 
     void replay(Entry entry) throws IOException {
@@ -162,7 +161,7 @@ final class Participant {
                     transactions.put(id, tx);
                 }
                 checkReplay(tx.vote == null && tx.decision == null && tx.items.equals(entry.items())
-                        && Coordinator.sameEndpoints(tx.endpoints, entry.participants()), id);
+                        && sameEndpoints(tx.endpoints, entry.participants()), id);
                 tx.vote = yes;
                 if (yes) {
                     checkReplay(resources.claim(id, tx.items), id);
@@ -178,9 +177,7 @@ final class Participant {
                 }
                 checkReplay(tx.decision == null && tx.items.equals(entry.items())
                         && (!commit || Boolean.TRUE.equals(tx.vote)), id);
-                resources.finish(id, tx.items, commit);
-                tx.decision = commit ? COMMITTED : ABORTED;
-                ready.remove(tx);
+                finish(tx, commit ? COMMITTED : ABORTED);
             }
             default -> checkReplay(false, id);
         }
@@ -197,12 +194,7 @@ final class Participant {
     }
 
     private boolean owns(List<String> items) {
-        return !items.isEmpty() && new HashSet<>(items).size() == items.size()
-                && items.stream().allMatch(item -> server.node.equals(server.config.owner(item)));
-    }
-
-    private static boolean includes(List<Endpoint> endpoints, String node) {
-        return endpoints.stream().anyMatch(endpoint -> endpoint.id().equals(node));
+        return !items.isEmpty() && items.stream().allMatch(item -> server.node.equals(server.config.owner(item)));
     }
 
     private static Entry entry(Kind kind, Transaction tx) {

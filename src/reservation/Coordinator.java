@@ -30,7 +30,6 @@ final class Coordinator {
         TxId id = request.id();
         require(server.node.equals(id.coordinator()), "Wrong coordinator");
         List<String> items = request.items().stream().sorted().toList();
-        require(!items.isEmpty() && new HashSet<>(items).size() == items.size(), "Invalid item list");
         Transaction tx = transactions.get(id);
         if (tx != null) {
             String result = tx.items != null && !tx.items.equals(items) ? "ID_CONFLICT"
@@ -50,20 +49,20 @@ final class Coordinator {
         }
         server.persist(start);
         transactions.put(id, tx);
-        active.add(tx);
         server.faults.hit("after-start", id);
-        tx.deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(server.config.voteTimeoutMs());
         if (tx.endpoints.isEmpty()) {
             decide(tx, ABORTED);
             finish(tx);
             return Message.reply(Type.RESULT, id, "", ABORTED);
         }
+        tx.deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(server.config.voteTimeoutMs());
+        active.add(tx);
         return Message.reply(Type.RESULT, id, "", PENDING);
     }
 
     Message query(Message request) throws IOException {
         TxId id = request.id();
-        require(request.participants().stream().anyMatch(e -> e.id().equals(request.sender())),
+        require(includes(request.participants(), request.sender()),
                 "Decision query sender is outside the participant list");
         Transaction tx = transactions.get(id);
         if (tx == null) {
@@ -77,37 +76,34 @@ final class Coordinator {
     }
 
     void tick(long now) throws IOException {
-        if (active.isEmpty()) {
-            return;
-        }
-        for (Transaction tx : new ArrayList<>(active)) {
+        for (Transaction tx : active) {
             if (tx.decision == null && now - tx.deadline >= 0) {
                 decide(tx, ABORTED);
             }
-            if (tx.decision != null && tx.acks.size() == tx.endpoints.size()) {
-                finish(tx);
-            } else if (now - tx.nextSend >= 0) {
+            if (now - tx.nextSend >= 0) {
                 tx.nextSend = server.retryAt(now);
-                if (tx.decision == null) {
-                    prepare(tx);
-                } else {
-                    deliver(tx);
-                }
+                sendPhase(tx);
             }
         }
     }
 
-    private void prepare(Transaction tx) {
-        boolean stopAfterFirst = server.faults.matches("after-first-prepare", tx.id);
+    private void sendPhase(Transaction tx) {
+        boolean preparing = tx.decision == null;
+        String firstReply = preparing ? "after-first-prepare" : "after-first-decision";
+        boolean stopAfterFirst = server.faults.matches(firstReply, tx.id);
+        Message decision = preparing ? null : Message.simple(
+                COMMITTED.equals(tx.decision) ? Type.GLOBAL_COMMIT : Type.GLOBAL_ABORT, tx.id, server.node);
         for (Endpoint endpoint : tx.endpoints) {
             String peer = endpoint.id();
-            if (stopAfterFirst && !tx.prepareCalls.isEmpty()) {
+            if (stopAfterFirst && !tx.waiting.isEmpty()) {
                 break;
             }
-            if (!tx.yes.contains(peer) && tx.prepareCalls.add(peer)) {
-                if (!server.send(endpoint, prepareMessage(tx, peer), reply -> vote(tx, peer, reply))) {
-                    tx.prepareCalls.remove(peer);
-                }
+            if (tx.replied.contains(peer) || !tx.waiting.add(peer)) {
+                continue;
+            }
+            Message request = preparing ? prepareMessage(tx, peer) : decision;
+            if (!server.send(endpoint, request, reply -> receive(tx, peer, preparing, reply))) {
+                tx.waiting.remove(peer);
             }
         }
     }
@@ -116,53 +112,43 @@ final class Coordinator {
         return new Message(Type.PREPARE, tx.id, server.node, tx.endpoints, tx.groups.get(peer), "");
     }
 
-    private void vote(Transaction tx, String peer, Message reply) throws IOException {
-        tx.prepareCalls.remove(peer);
-        if (tx.decision != null || reply == null) {
+    private void receive(Transaction tx, String peer, boolean preparing, Message reply) throws IOException {
+        // A late vote belongs to the old phase, even if a decision call to that peer is in flight.
+        if (tx.ended || preparing != (tx.decision == null)) {
             return;
         }
-        if (reply.type() == Type.VOTE_COMMIT || reply.type() == Type.VOTE_ABORT) {
-            server.faults.hit("after-first-prepare", tx.id);
-            if (reply.type() == Type.VOTE_ABORT || System.nanoTime() - tx.deadline >= 0) {
-                decide(tx, ABORTED);
-            } else if (tx.yes.add(peer) && tx.yes.size() == tx.endpoints.size()) {
-                server.faults.hit("after-all-yes", tx.id);
-                decide(tx, COMMITTED);
-            }
+        tx.waiting.remove(peer);
+        if (reply == null) {
+            return;
         }
-    }
-
-    private void deliver(Transaction tx) {
-        Type type = COMMITTED.equals(tx.decision) ? Type.GLOBAL_COMMIT : Type.GLOBAL_ABORT;
-        boolean stopAfterFirst = server.faults.matches("after-first-decision", tx.id);
-        for (Endpoint endpoint : tx.endpoints) {
-            String peer = endpoint.id();
-            if (stopAfterFirst && !tx.deliveryCalls.isEmpty()) {
-                break;
-            }
-            if (!tx.acks.contains(peer) && tx.deliveryCalls.add(peer)
-                    && !server.send(endpoint, Message.simple(type, tx.id, server.node),
-                            reply -> acknowledge(tx, peer, reply))) {
-                tx.deliveryCalls.remove(peer);
-            }
-        }
-    }
-
-    private void acknowledge(Transaction tx, String peer, Message reply) throws IOException {
-        tx.deliveryCalls.remove(peer);
-        if (!tx.ended && reply != null && reply.type() == Type.ACK && tx.decision.equals(reply.status())) {
-            if (tx.acks.add(peer)) {
-                server.faults.hit("after-first-decision", tx.id);
-            }
-            if (tx.acks.size() == tx.endpoints.size()) {
+        if (preparing) {
+            vote(tx, peer, reply.type());
+        } else if (reply.type() == Type.ACK && tx.decision.equals(reply.status()) && tx.replied.add(peer)) {
+            server.faults.hit("after-first-decision", tx.id);
+            if (tx.replied.size() == tx.endpoints.size()) {
                 finish(tx);
             }
+        }
+    }
+
+    private void vote(Transaction tx, String peer, Type vote) throws IOException {
+        if (vote != Type.VOTE_COMMIT && vote != Type.VOTE_ABORT) {
+            return;
+        }
+        server.faults.hit("after-first-prepare", tx.id);
+        if (vote == Type.VOTE_ABORT || System.nanoTime() - tx.deadline >= 0) {
+            decide(tx, ABORTED);
+        } else if (tx.replied.add(peer) && tx.replied.size() == tx.endpoints.size()) {
+            server.faults.hit("after-all-yes", tx.id);
+            decide(tx, COMMITTED);
         }
     }
 
     private void decide(Transaction tx, String decision) throws IOException {
         server.persist(record(COMMITTED.equals(decision) ? Kind.GLOBAL_COMMIT : Kind.GLOBAL_ABORT, tx.id));
         tx.decision = decision;
+        tx.waiting.clear();
+        tx.replied.clear();
         tx.nextSend = System.nanoTime();
         server.faults.hit("after-decision", tx.id);
     }
@@ -171,8 +157,7 @@ final class Coordinator {
         server.persist(record(Kind.END, tx.id));
         tx.ended = true;
         active.remove(tx);
-        tx.yes.clear();
-        tx.acks.clear();
+        tx.replied.clear();
         server.faults.hit("after-end", tx.id);
     }
 
@@ -182,7 +167,7 @@ final class Coordinator {
         Transaction tx = transactions.get(id);
         switch (entry.kind()) {
             case START_2PC -> {
-                checkReplay(tx == null && new HashSet<>(entry.items()).size() == entry.items().size(), id);
+                checkReplay(tx == null, id);
                 tx = new Transaction(id, entry.items(), group(entry.items()));
                 checkReplay(sameEndpoints(tx.endpoints, entry.participants()), id);
                 transactions.put(id, tx);
@@ -206,11 +191,16 @@ final class Coordinator {
 
     void recover() throws IOException {
         for (Transaction tx : transactions.values()) {
-            if (!tx.ended) {
+            if (tx.ended) {
+                continue;
+            }
+            if (tx.decision == null) {
+                decide(tx, ABORTED);
+            }
+            if (tx.endpoints.isEmpty()) {
+                finish(tx);
+            } else {
                 active.add(tx);
-                if (tx.decision == null) {
-                    decide(tx, ABORTED);
-                }
             }
         }
     }
@@ -238,19 +228,13 @@ final class Coordinator {
         return new Entry(Role.COORDINATOR, kind, id, List.of(), List.of());
     }
 
-    static boolean sameEndpoints(List<Endpoint> left, List<Endpoint> right) {
-        return left.size() == right.size() && new HashSet<>(left).equals(new HashSet<>(right));
-    }
-
     private final class Transaction {
         final TxId id;
         final List<String> items;
         final Map<String, List<String>> groups;
         final List<Endpoint> endpoints;
-        final Set<String> yes = new HashSet<>();
-        final Set<String> acks = new HashSet<>();
-        final Set<String> prepareCalls = new HashSet<>();
-        final Set<String> deliveryCalls = new HashSet<>();
+        final Set<String> replied = new HashSet<>();
+        final Set<String> waiting = new HashSet<>();
         long deadline;
         long nextSend = System.nanoTime();
         String decision;

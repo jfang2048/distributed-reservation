@@ -50,13 +50,14 @@ class Cluster:
         self.ports = next_ports()
         self.processes = {}
         self.logs = {}
+        self.read_timeout_ms = 500
         self.write_config(self.root / "client")
 
     def write_config(self, directory, fault=None):
         settings = {
             "client.coordinator": "a",
             "tcp.connectTimeoutMs": 300,
-            "tcp.readTimeoutMs": 500,
+            "tcp.readTimeoutMs": self.read_timeout_ms,
             "tx.voteTimeoutMs": 3000,
             "tx.retryDelayMs": 100,
         }
@@ -166,13 +167,19 @@ class Cluster:
         with socket.create_connection((LOOPBACK, self.ports[destination]), timeout=2) as conn:
             conn.sendall(struct.pack(">i", len(frame)) + frame)
             with conn.makefile("rb") as incoming:
-                length = struct.unpack(">i", incoming.read(4))[0]
+                header = incoming.read(4)
+                if not header:
+                    return b""
+                length = struct.unpack(">i", header)[0]
                 return incoming.read(length)
 
-    def status(self, body, kind, coordinator, tx_id, sender=""):
+    @staticmethod
+    def reply_prefix(kind, coordinator, tx_id, sender=""):
         prefix = bytes((1, kind)) + wire_text(coordinator) + wire_text(tx_id)
-        if sender:
-            prefix += wire_text(sender)
+        return prefix + wire_text(sender) if sender else prefix
+
+    def status(self, body, kind, coordinator, tx_id, sender=""):
+        prefix = self.reply_prefix(kind, coordinator, tx_id, sender)
         assert body.startswith(prefix), self.diagnostic(f"Unexpected response: {body!r}")
         payload = body[len(prefix):]
         assert len(payload) == 4 + struct.unpack(">i", payload[:4])[0]
@@ -183,11 +190,19 @@ class Cluster:
         body = self.exchange(coordinator, 1, coordinator, tx_id, payload)
         return self.status(body, 2, coordinator, tx_id)
 
-    def decision_query(self, destination, coordinator, sender, tx_id):
-        members = ("a", "b")
-        payload = wire_text(sender) + struct.pack(">i", len(members))
+    def participant_list(self, members):
+        payload = struct.pack(">i", len(members))
         for node in members:
             payload += wire_text(node) + wire_text(LOOPBACK) + struct.pack(">i", self.ports[node])
+        return payload
+
+    def prepare(self, destination, coordinator, tx_id, items, members=("a", "b")):
+        payload = wire_text(coordinator) + self.participant_list(members)
+        payload += struct.pack(">i", len(items)) + b"".join(map(wire_text, items))
+        return self.exchange(destination, 3, coordinator, tx_id, payload)
+
+    def decision_query(self, destination, coordinator, sender, tx_id):
+        payload = wire_text(sender) + self.participant_list(("a", "b"))
         body = self.exchange(destination, 9, coordinator, tx_id, payload)
         return self.status(body, 10, coordinator, tx_id, destination)
 
@@ -249,6 +264,102 @@ class ReservationTest(unittest.TestCase):
         self.assertTrue(set(statuses[:2]) <= {"COMMITTED", "ABORTED"})
         self.assertLessEqual(statuses[:2].count("COMMITTED"), 1)
         self.assertEqual(statuses[2:], ["COMMITTED", "COMMITTED"])
+
+    def test_duplicate_prepare_keeps_vote_after_reordering_and_restart(self):
+        self.start("b")
+        key = self.key()
+        expected = self.cluster.reply_prefix(4, "c", key, "b")
+        self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",)), expected)
+        saved = self.cluster.wal("b").read_bytes()
+        self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",), ("b", "a")), expected)
+        self.cluster.start("b")
+        self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",), ("b", "a")), expected)
+        self.assertEqual(self.cluster.wal("b").read_bytes(), saved)
+        self.assert_outcome("ABORTED", "b", ("camera",))
+
+    def test_abort_before_prepare_blocks_late_prepare_after_restart(self):
+        self.start("b")
+        key = self.key()
+        abort = self.cluster.exchange("b", 7, "c", key, wire_text("c"))
+        self.assertEqual(self.cluster.status(abort, 8, "c", key, "b"), "ABORTED")
+        saved = self.cluster.wal("b").read_bytes()
+        self.cluster.start("b")
+        self.assertEqual(self.cluster.exchange("b", 7, "c", key, wire_text("c")), abort)
+        expected = self.cluster.reply_prefix(5, "c", key, "b")
+        self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",)), expected)
+        self.assertEqual(self.cluster.wal("b").read_bytes(), saved)
+        self.assert_outcome("COMMITTED", "b", ("camera",))
+
+    def test_ready_participant_rejects_wrong_sender_and_mismatched_members(self):
+        self.start("b")
+        key = self.key()
+        vote = self.cluster.prepare("b", "c", key, ("camera",))
+        self.assertEqual(vote, self.cluster.reply_prefix(4, "c", key, "b"))
+        saved = self.cluster.wal("b").read_bytes()
+        wrong_sender = wire_text("a")
+        changed_members = wrong_sender + self.cluster.participant_list(("a", "b", "c"))
+        self.assertEqual(self.cluster.exchange("b", 7, "c", key, wrong_sender), b"")
+        self.assertEqual(self.cluster.exchange("b", 9, "c", key, changed_members), b"")
+        self.assertEqual(self.cluster.decision_query("b", "c", "a", key), "PENDING")
+        self.assertEqual(self.cluster.wal("b").read_bytes(), saved)
+
+    def test_finished_transaction_retries_do_not_append_records(self):
+        self.start("a", "b")
+        items = ("projector", "camera")
+        key = self.assert_outcome("COMMITTED", "a", items)
+        saved = {node: self.cluster.wal(node).read_bytes() for node in ("a", "b")}
+        self.assertEqual(self.cluster.reserve_once("a", items, key), "COMMITTED")
+        self.assertEqual(self.cluster.reserve_once("a", ("screen",), key), "ID_CONFLICT")
+        self.start("a", "b")
+        self.assertEqual(self.cluster.reserve_once("a", items[::-1], key), "COMMITTED")
+        self.assertEqual(self.cluster.reserve_once("a", ("screen",), key), "ID_CONFLICT")
+        for node, wal in saved.items():
+            self.assertEqual(self.cluster.wal(node).read_bytes(), wal)
+
+    def test_coordinator_recovers_unknown_item_reservation_after_start(self):
+        self.start("a", "b")
+        key = self.key()
+        self.cluster.start("c", "after-start", key)
+        self.cluster.invoke("c", ("unknown",), key)
+        self.cluster.expect_fault("c", "after-start", key)
+        self.cluster.start("c")
+        self.assert_outcome("ABORTED", "c", ("unknown",), key)
+        self.assert_outcome("COMMITTED", "c", ("projector", "camera"))
+
+    def test_late_vote_keeps_decision_call_in_flight(self):
+        self.cluster.read_timeout_ms = 6000
+        key = self.key()
+
+        def expect_message(connection, kind):
+            connection.settimeout(2)
+            with connection.makefile("rb") as stream:
+                length, = struct.unpack(">i", stream.read(4))
+                self.assertEqual(stream.read(length)[:2], bytes((1, kind)))
+
+        def reply(connection, kind, status=None):
+            frame = self.cluster.reply_prefix(kind, "a", key, "b")
+            if status is not None:
+                frame += wire_text(status)
+            connection.sendall(struct.pack(">i", len(frame)) + frame)
+
+        with socket.socket() as peer:
+            peer.bind((LOOPBACK, self.cluster.ports["b"]))
+            peer.listen()
+            peer.settimeout(6)
+            self.start("a")
+            self.assertEqual(self.cluster.reserve_once("a", ("camera",), key), "PENDING")
+            prepare, _ = peer.accept()
+            with prepare:
+                expect_message(prepare, 3)
+                decision, _ = peer.accept()
+                with decision:
+                    expect_message(decision, 7)
+                    reply(prepare, 4)
+                    peer.settimeout(0.5)
+                    with self.assertRaises(socket.timeout):
+                        peer.accept()
+                    reply(decision, 8, "ABORTED")
+            self.assert_outcome("ABORTED", "a", ("camera",), key)
 
     def test_unseen_decision_query_closes_key(self):
         self.start(*NODES)
