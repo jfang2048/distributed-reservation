@@ -29,6 +29,7 @@ final class Transport {
     }
 
     void serve(String node, Function<Message, Message> handler) throws IOException {
+        // Bound the number of queued connections. Close a socket immediately when the worker queue is full.
         ThreadPoolExecutor workers = new ThreadPoolExecutor(WORKERS, WORKERS, 0,
                 TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(BACKLOG));
         try (ServerSocket listener = new ServerSocket()) {

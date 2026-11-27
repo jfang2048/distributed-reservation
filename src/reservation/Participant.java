@@ -28,6 +28,8 @@ final class Participant {
     Message prepare(Message request) throws IOException {
         TxId id = request.id();
         require(includes(request.participants(), server.node) && owns(request.items()), "Invalid prepare items");
+        // Record the original request before taking locks. Redelivered prepares must match that request
+        // and reuse any durable vote rather than claim the resources again.
         Transaction tx = transactions.get(id);
         if (tx == null) {
             tx = new Transaction(id, request.participants(), request.items());
@@ -51,6 +53,7 @@ final class Participant {
         TxId id = request.id();
         boolean commit = request.type() == Type.GLOBAL_COMMIT;
         Transaction tx = transactions.get(id);
+        // Abort can arrive before PREPARE. Save it so a late PREPARE cannot create a new claim.
         require(!commit || (tx != null && Boolean.TRUE.equals(tx.vote)), "Commit requires a saved yes vote");
         if (tx == null) {
             tx = new Transaction(id, List.of(), List.of());
@@ -71,6 +74,7 @@ final class Participant {
         } else if (!tx.endpoints.isEmpty()) {
             require(sameEndpoints(tx.endpoints, request.participants()), "Decision query uses a different participant list");
         }
+        // A peer can use a no vote as proof of abort, so force that vote before sharing it.
         if (tx.vote == null && tx.decision == null) {
             recordVote(tx, false);
         }
@@ -79,6 +83,8 @@ final class Participant {
     }
 
     void tick(long now) {
+        // A READY participant keeps its locks while querying for a decision. Silence and PENDING
+        // leave it in READY because a commit may already be durable elsewhere.
         for (Transaction tx : ready) {
             if (now - tx.nextQuery < 0) {
                 continue;
@@ -112,6 +118,7 @@ final class Participant {
     }
 
     private void recordVote(Transaction tx, boolean yes) throws IOException {
+        // Persist the vote before reporting it or entering READY so replay can restore the same promise.
         server.persist(entry(yes ? Kind.VOTE_COMMIT : Kind.VOTE_ABORT, tx));
         tx.vote = yes;
         if (yes) {
@@ -125,6 +132,8 @@ final class Participant {
     }
 
     private void apply(Transaction tx, String outcome) throws IOException {
+        // The same outcome can arrive through both decision delivery and a peer query.
+        // Apply it once, forcing the record before confirming a reservation or releasing locks.
         if (tx.decision != null) {
             require(tx.decision.equals(outcome), "Received conflicting decisions");
             return;
@@ -144,6 +153,8 @@ final class Participant {
     }
 
     void replay(Entry entry) throws IOException {
+        // Rebuild resources in log order. INIT alone holds no durable lock, a yes vote restores
+        // the prepared lock, and a decision settles the claim.
         TxId id = entry.id();
         Transaction tx = transactions.get(id);
         switch (entry.kind()) {
@@ -156,6 +167,7 @@ final class Participant {
                 validateStoredEndpoints(entry);
                 boolean yes = entry.kind() == Kind.VOTE_COMMIT;
                 if (tx == null) {
+                    // A decision query can produce a durable no before any PREPARE reaches this node.
                     checkReplay(!yes && entry.items().isEmpty(), id);
                     tx = new Transaction(id, entry.participants(), entry.items());
                     transactions.put(id, tx);

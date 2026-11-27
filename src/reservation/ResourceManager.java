@@ -9,6 +9,8 @@ final class ResourceManager {
     private final Map<String, TxId> reserved = new HashMap<>();
 
     boolean claim(TxId id, List<String> items) {
+        // The server serializes calls. Check the entire item set before changing any lock
+        // so a rejected vote leaves no partial claim.
         for (String item : items) {
             if (reserved.containsKey(item) || (locks.containsKey(item) && !id.equals(locks.get(item)))) {
                 return false;
@@ -21,6 +23,8 @@ final class ResourceManager {
     }
 
     void finish(TxId id, List<String> items, boolean commit) {
+        // Commit turns prepared locks into reservations. Release only locks owned by this transaction,
+        // since another transaction may own an item after a rejected claim.
         if (commit) {
             for (String item : items) {
                 if (!id.equals(locks.get(item))) {

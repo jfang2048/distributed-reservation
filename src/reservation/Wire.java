@@ -15,6 +15,8 @@ final class Wire {
     }
 
     static Message read(InputStream source) throws IOException {
+        // TCP carries a byte stream. Read one bounded frame in full so field decoding cannot
+        // consume bytes from a following frame.
         DataInputStream stream = new DataInputStream(source);
         int length = stream.readInt();
         if (length < 2 || length > FrameFields.MAX_FRAME) {
@@ -50,6 +52,7 @@ final class Wire {
     }
 
     static void check(Message message) throws IOException {
+        // Run the same validation and size checks used by write without opening a connection.
         encode(message);
     }
 

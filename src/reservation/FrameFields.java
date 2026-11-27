@@ -21,6 +21,7 @@ final class FrameFields {
     }
 
     static void writeText(DataOutputStream out, String text) throws IOException {
+        // Use encoded byte length for the prefix. Include that prefix and earlier fields in the frame budget.
         if (text.length() > MAX_FRAME) {
             throw new IOException("Text field exceeds the frame limit");
         }
@@ -112,6 +113,8 @@ final class FrameFields {
     }
 
     private static int readCount(DataInputStream in, int minimumEntrySize) throws IOException {
+        // These decoders read buffered payloads, so available() is the remaining frame size.
+        // Bound the count before allocating a list using a length supplied by the input.
         int count = in.readInt();
         if (count < 0 || count > in.available() / minimumEntrySize) {
             throw new IOException("Invalid list length: " + count);

@@ -3,6 +3,7 @@ package reservation;
 import java.io.IOException;
 
 enum Type {
+    // These explicit codes are part of the wire format and must remain stable across builds.
     RESERVE(1),
     RESULT(2),
     PREPARE(3),

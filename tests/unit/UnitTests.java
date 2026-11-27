@@ -29,6 +29,7 @@ final class UnitTests {
         byte[] frame = encoded.toByteArray();
         check(decode(frame).equals(prepare), "UTF-8 prepare round trip");
 
+        // Change one part of the valid frame at a time to exercise three distinct decoder checks.
         byte[] truncated = Arrays.copyOf(frame, frame.length - 1);
         expectIOException(() -> decode(truncated), "truncated frame");
 
@@ -63,6 +64,7 @@ final class UnitTests {
                 expectIOException(() -> new TransactionLog(directory).close(), "duplicate open");
             }
 
+            // Simulate a torn final record and verify replay leaves the channel ready for another append.
             byte[] complete = Files.readAllBytes(file);
             Files.write(file, Arrays.copyOf(complete, complete.length - 2));
             try (TransactionLog log = new TransactionLog(directory)) {
@@ -72,6 +74,7 @@ final class UnitTests {
                 check(log.replay().equals(List.of(start, abort)), "append after tail recovery");
             }
 
+            // A complete record with a damaged checksum must fail replay and remain on disk.
             complete[complete.length - 1] ^= 1;
             Files.write(file, complete);
             try (TransactionLog log = new TransactionLog(directory)) {
@@ -91,6 +94,7 @@ final class UnitTests {
         TxId third = transaction(3);
         List<String> camera = List.of("camera");
         List<String> projector = List.of("projector");
+        // Put the available item first to catch a failed claim that locks items incrementally.
         check(resources.claim(first, camera), "claim camera");
         check(!resources.claim(second, List.of("projector", "camera")), "reject a held camera");
         check(resources.claim(third, projector), "failed claim leaves the projector free");

@@ -28,6 +28,8 @@ final class Faults {
 
     void hit(String point, TxId id) {
         if (matches(point, id)) {
+            // Flush the marker before halting without cleanup. In pause mode, stay at the fault
+            // boundary even if the thread is interrupted, until the operator stops the process.
             triggered = true;
             System.out.println("FAULT " + point + " " + id.uuid());
             System.out.flush();

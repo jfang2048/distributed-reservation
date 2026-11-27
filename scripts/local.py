@@ -16,6 +16,8 @@ def main():
     if not JAR.is_file():
         raise RuntimeError("Run python scripts/build.py to build the JAR.")
     java = java_tool("java")
+    # Run under an isolated working directory so relative config and log paths stay separate
+    # from a LAN deployment. Stage the config so concurrent launchers only see complete profiles.
     runtime = ROOT / "run" / "local"
     config = runtime / "config"
     config.mkdir(parents=True, exist_ok=True)
@@ -25,6 +27,8 @@ def main():
         shutil.copyfile(profile, staged)
         staged.replace(config / "cluster.properties")
     command = [java, "-jar", str(JAR), *args]
+    # On POSIX, replace the launcher so signals reach Java directly. On Windows, wait for
+    # the child and propagate its exit status.
     if os.name != "nt":
         os.chdir(runtime)
         os.execv(java, command)

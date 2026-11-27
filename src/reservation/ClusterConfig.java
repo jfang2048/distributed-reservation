@@ -72,6 +72,8 @@ final class ClusterConfig {
                 throw new IllegalArgumentException("Invalid node ID: " + id);
             }
             String prefix = "node." + id + ".";
+            // Peers dial the advertised endpoint. The local bind address and listen port can differ,
+            // for example when a forwarded port is used.
             int port = number(properties, prefix + "port", null, 65535);
             int listenPort = number(properties, prefix + "listenPort", Integer.toString(port), 65535);
             String bind = properties.getProperty(prefix + "bind", "0.0.0.0").strip();

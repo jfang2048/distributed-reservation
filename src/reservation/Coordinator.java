@@ -29,6 +29,7 @@ final class Coordinator {
     Message reserve(Message request) throws IOException {
         TxId id = request.id();
         require(server.node.equals(id.coordinator()), "Wrong coordinator");
+        // Compare retries by resource set. Expose the final result only after every participant has acknowledged it.
         List<String> items = request.items().stream().sorted().toList();
         Transaction tx = transactions.get(id);
         if (tx != null) {
@@ -38,6 +39,7 @@ final class Coordinator {
         }
         tx = new Transaction(id, items, group(items));
         Entry start = new Entry(Role.COORDINATOR, Kind.START_2PC, id, tx.endpoints, tx.items);
+        // Check that the start record and later protocol messages fit before accepting the transaction durably.
         try {
             TransactionLog.check(start);
             for (Endpoint endpoint : tx.endpoints) {
@@ -66,6 +68,7 @@ final class Coordinator {
                 "Decision query sender is outside the participant list");
         Transaction tx = transactions.get(id);
         if (tx == null) {
+            // Once a peer learns abort, a delayed first RESERVE must not reopen this transaction key.
             server.persist(record(Kind.GLOBAL_ABORT, id));
             tx = tombstone(id);
             transactions.put(id, tx);
@@ -93,6 +96,8 @@ final class Coordinator {
         boolean stopAfterFirst = server.faults.matches(firstReply, tx.id);
         Message decision = preparing ? null : Message.simple(
                 COMMITTED.equals(tx.decision) ? Type.GLOBAL_COMMIT : Type.GLOBAL_ABORT, tx.id, server.node);
+        // Retry only peers with no recorded reply or call in flight for this phase. For a first-reply
+        // fault, send to one peer at a time so the injected crash can leave the rest unanswered.
         for (Endpoint endpoint : tx.endpoints) {
             String peer = endpoint.id();
             if (stopAfterFirst && !tx.waiting.isEmpty()) {
@@ -136,6 +141,7 @@ final class Coordinator {
             return;
         }
         server.faults.hit("after-first-prepare", tx.id);
+        // Check the deadline here as well as in tick, since the final vote can arrive between ticks.
         if (vote == Type.VOTE_ABORT || System.nanoTime() - tx.deadline >= 0) {
             decide(tx, ABORTED);
         } else if (tx.replied.add(peer) && tx.replied.size() == tx.endpoints.size()) {
@@ -145,6 +151,7 @@ final class Coordinator {
     }
 
     private void decide(Transaction tx, String decision) throws IOException {
+        // Force the decision before making it available to queries or switching from votes to ACKs.
         server.persist(record(COMMITTED.equals(decision) ? Kind.GLOBAL_COMMIT : Kind.GLOBAL_ABORT, tx.id));
         tx.decision = decision;
         tx.waiting.clear();
@@ -168,6 +175,7 @@ final class Coordinator {
         switch (entry.kind()) {
             case START_2PC -> {
                 checkReplay(tx == null, id);
+                // Recovery must address the original participants. Reject configuration changes that alter their endpoints.
                 tx = new Transaction(id, entry.items(), group(entry.items()));
                 checkReplay(sameEndpoints(tx.endpoints, entry.participants()), id);
                 transactions.put(id, tx);
@@ -190,6 +198,8 @@ final class Coordinator {
     }
 
     void recover() throws IOException {
+        // Without a durable decision, recover as abort. Otherwise retransmit the saved decision
+        // for unfinished transactions because individual ACKs are tracked only in memory.
         for (Transaction tx : transactions.values()) {
             if (tx.ended) {
                 continue;
@@ -206,6 +216,7 @@ final class Coordinator {
     }
 
     private Map<String, List<String>> group(List<String> items) {
+        // One unknown item invalidates the whole request. An empty map leads to a local abort.
         Map<String, List<String>> groups = new TreeMap<>();
         for (String item : items) {
             String owner = server.config.owner(item);

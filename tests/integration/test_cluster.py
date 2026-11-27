@@ -21,6 +21,7 @@ STATUSES = {"COMMITTED", "ABORTED", "PENDING", "ID_CONFLICT", "INVALID_REQUEST"}
 
 
 def next_ports():
+    # Keep the sockets open until all nodes have distinct ports, then release them for the servers.
     with contextlib.ExitStack() as sockets:
         ports = {}
         for node in NODES:
@@ -83,6 +84,8 @@ class Cluster:
 
     def start(self, node, point=None, tx_id=None, wait_ready=True):
         self.stop(node)
+        # Reuse the node directory for WAL recovery. Give each process its own output file
+        # so diagnostics can identify the current run.
         directory = self.root / node
         self.write_config(directory, (node, point, tx_id) if point else None)
         log = directory / f"server-{len(list(directory.glob('server-*')))}.log"
@@ -94,6 +97,8 @@ class Cluster:
         self.processes[node] = process
         self.logs[node] = log
 
+        # Wait for a real connection after startup and replay. Tests expecting a replay failure
+        # skip this probe and assert the exit themselves.
         if wait_ready:
             def listening():
                 if process.poll() is not None:
@@ -163,6 +168,7 @@ class Cluster:
         return self.root / node / "run" / node / "transactions.wal"
 
     def exchange(self, destination, kind, coordinator, tx_id, payload):
+        # Send individual protocol frames so tests can control ordering without the CLI's polling.
         frame = bytes((1, kind)) + wire_text(coordinator) + wire_text(tx_id) + payload
         with socket.create_connection((LOOPBACK, self.ports[destination]), timeout=2) as conn:
             conn.sendall(struct.pack(">i", len(frame)) + frame)
@@ -209,6 +215,7 @@ class Cluster:
 
 class ReservationTest(unittest.TestCase):
     def setUp(self):
+        # Cleanup runs in reverse order. Stop the JVMs before removing directories that hold open files.
         directory = tempfile.TemporaryDirectory(prefix="reservation-test-")
         self.addCleanup(directory.cleanup)
         self.cluster = Cluster(Path(directory.name))
@@ -236,6 +243,8 @@ class ReservationTest(unittest.TestCase):
     def test_large_frame_does_not_stop_coordinator(self):
         self.start("a", "b")
         key = self.key()
+        # Fit the incoming request in one frame while making the coordinator's start record too large.
+        # Reuse the key afterwards to verify validation failed before the transaction was saved.
         overhead = 2 + len(wire_text("a")) + len(wire_text(key)) + 8
         item = "x" * ((1 << 20) - overhead)
         self.assertEqual(self.cluster.reserve_once("a", [item], key), "INVALID_REQUEST")
@@ -249,6 +258,7 @@ class ReservationTest(unittest.TestCase):
         self.assert_outcome("COMMITTED", "a", items, key)
         self.assert_outcome("COMMITTED", "a", items[::-1], key)
         self.assert_outcome("ID_CONFLICT", "a", ("screen",), key)
+        # Losing a claim on camera must leave screen available for the later transaction.
         self.assert_outcome("ABORTED", "a", ("screen", "camera"))
         self.assert_outcome("ABORTED", "a", ("unknown",))
         self.assert_outcome("COMMITTED", "a", ("screen",))
@@ -261,6 +271,8 @@ class ReservationTest(unittest.TestCase):
             futures = [workers.submit(self.cluster.outcome, node, items, self.key())
                        for node, items in requests]
             statuses = [future.result() for future in futures]
+        # The conflicting pair may both abort if different nodes lock on behalf of different requests.
+        # The disjoint requests should still commit.
         self.assertTrue(set(statuses[:2]) <= {"COMMITTED", "ABORTED"})
         self.assertLessEqual(statuses[:2].count("COMMITTED"), 1)
         self.assertEqual(statuses[2:], ["COMMITTED", "COMMITTED"])
@@ -273,6 +285,7 @@ class ReservationTest(unittest.TestCase):
         self.cluster.stop("b")
         saved = self.cluster.wal("b").read_bytes()
         self.cluster.start("b")
+        # Participant ordering can change on redelivery. The saved vote and lock must hold without a new record.
         self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",), ("b", "a")), expected)
         self.assertEqual(self.cluster.prepare("b", "c", key, ("camera",)), expected)
         self.cluster.stop("b")
@@ -340,6 +353,7 @@ class ReservationTest(unittest.TestCase):
         self.assert_outcome("COMMITTED", "c", ("projector", "camera"))
 
     def test_late_vote_keeps_decision_call_in_flight(self):
+        # Let the vote deadline expire while the PREPARE socket remains open.
         self.cluster.read_timeout_ms = 6000
         key = self.key()
 
@@ -367,6 +381,8 @@ class ReservationTest(unittest.TestCase):
                 decision, _ = peer.accept()
                 with decision:
                     expect_message(decision, 7)
+                    # Deliver the stale vote while the abort is waiting for ACK. The late vote
+                    # must not clear that in-flight call and cause a duplicate abort.
                     reply(prepare, 4)
                     peer.settimeout(0.5)
                     with self.assertRaises(socket.timeout):
@@ -390,6 +406,8 @@ class ReservationTest(unittest.TestCase):
         self.cluster.start("c", "after-all-yes", key)
         self.cluster.invoke("c", items, key)
         self.cluster.expect_fault("c", "after-all-yes", key)
+        # With both votes durable and the coordinator down, a restarted participant must
+        # reconstruct its lock and stay blocked until the coordinator's recovery abort.
         self.cluster.start("a")
         self.assertEqual(self.cluster.decision_query("b", "c", "a", key), "PENDING")
         self.assert_outcome("ABORTED", "a", ("projector",))
@@ -477,6 +495,8 @@ class ReservationTest(unittest.TestCase):
         self.cluster.start("b", point, key)
         self.assertEqual(self.cluster.reserve_once("a", items, key), "PENDING")
         self.cluster.expect_fault("b", point, key)
+        # In both crash windows the coordinator has no ACK yet, so the client still sees PENDING.
+        # After restart, redelivery must finish the same transaction and keep the camera reserved.
         self.assertEqual(self.cluster.reserve_once("a", items, key), "PENDING")
         self.cluster.start("b")
         self.assert_outcome("COMMITTED", "a", items, key)
@@ -495,6 +515,8 @@ class ReservationTest(unittest.TestCase):
         self.cluster.stop("a")
         wal = self.cluster.wal("a")
         saved = wal.read_bytes()
+        # First append a partial record. Then damage a checksum in the complete log to
+        # distinguish recoverable truncation from corruption that must stop startup.
         wal.write_bytes(saved + struct.pack(">i", 24) + b"short")
         self.cluster.start("a")
         self.assert_outcome("COMMITTED", "a", items, key)

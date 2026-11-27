@@ -82,6 +82,8 @@ final class TransactionLog implements AutoCloseable {
 
     TransactionLog(Path directory) throws IOException {
         Files.createDirectories(directory);
+        // Guard the canonical path inside this JVM before opening the channel. The file lock also
+        // protects against a second process using the same log directory.
         path = directory.toRealPath().resolve("transactions.wal");
         if (!OPEN_LOGS.add(path)) {
             throw new IOException("Transaction log is already open: " + path);
@@ -128,6 +130,7 @@ final class TransactionLog implements AutoCloseable {
     }
 
     synchronized List<Entry> replay() throws IOException {
+        // Resume appending only after validating the log and positioning the channel at the end.
         readyToAppend = false;
         FileChannel channel = lock.channel();
         channel.position(0);
@@ -136,6 +139,8 @@ final class TransactionLog implements AutoCloseable {
         ByteBuffer lengthField = ByteBuffer.allocate(Integer.BYTES);
         long offset = 0;
         while (offset < size) {
+            // A crash can leave a partial length prefix or record at the end. Truncate at the
+            // last record boundary, but surface invalid lengths and checksums as corruption.
             long remaining = size - offset;
             if (remaining < Integer.BYTES) {
                 truncateTail(channel, offset);
@@ -176,6 +181,7 @@ final class TransactionLog implements AutoCloseable {
             throw new IOException("Replay the transaction log before appending");
         }
         byte[] payload = encode(entry);
+        // Cover both the length and the payload with the checksum, matching replay.
         ByteBuffer frame = ByteBuffer.allocate(Integer.BYTES + payload.length + Integer.BYTES);
         frame.putInt(payload.length);
         frame.put(payload);
@@ -185,6 +191,8 @@ final class TransactionLog implements AutoCloseable {
         frame.flip();
 
         FileChannel channel = lock.channel();
+        // Keep appending disabled if a write or force fails. Callers rely on a successful return
+        // before sending a message or applying the recorded state change.
         readyToAppend = false;
         while (frame.hasRemaining()) {
             channel.write(frame);
@@ -262,6 +270,7 @@ final class TransactionLog implements AutoCloseable {
     }
 
     private static void validate(Entry entry) throws IOException {
+        // Check each record's shape here. The two roles validate legal state transitions during replay.
         boolean hasParticipants = !entry.participants().isEmpty();
         boolean hasItems = !entry.items().isEmpty();
         boolean valid = switch (entry.role()) {

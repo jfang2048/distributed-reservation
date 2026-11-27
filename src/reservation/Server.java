@@ -42,6 +42,7 @@ final class Server {
     void run() throws IOException {
         try (var transactionLog = new TransactionLog(config.logDir(node))) {
             log = transactionLog;
+            // Restore both roles and resolve undecided coordinator transactions before ticks or requests can run.
             for (Entry entry : log.replay()) {
                 switch (entry.role()) {
                     case COORDINATOR -> coordinator.replay(entry);
@@ -63,6 +64,8 @@ final class Server {
         }
     }
 
+    // Ticks, request handlers, and reply callbacks share this monitor so role state and resource locks
+    // cannot change concurrently on this node.
     private synchronized void tick() {
         if (log == null) {
             return;
@@ -126,6 +129,8 @@ final class Server {
     }
 
     boolean send(Endpoint endpoint, Message request, Response consumer) {
+        // Run socket I/O outside the server monitor. The coordinator can also be a local participant,
+        // in which case the worker dispatches through the same request handler without opening a socket.
         try {
             outgoing.execute(() -> {
                 Message reply = null;
@@ -139,6 +144,7 @@ final class Server {
                 if (reply != null && (!request.id().equals(reply.id()) || !endpoint.id().equals(reply.sender()))) {
                     reply = null;
                 }
+                // Apply the reply under the state monitor, provided shutdown has not detached the log.
                 synchronized (this) {
                     if (log != null) {
                         try {

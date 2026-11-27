@@ -11,6 +11,7 @@ JAR = ROOT / "build" / "reservation.jar"
 
 
 def java_tool(name):
+    # Prefer the selected JDK so compilation, packaging, and test execution use the same toolchain.
     home = os.environ.get("JAVA_HOME")
     executable = name + ".exe" if os.name == "nt" else name
     command = Path(home) / "bin" / executable if home else executable
@@ -26,10 +27,13 @@ def build():
         raise RuntimeError("Add Java sources under src/ before building.")
     javac, jar = java_tool("javac"), java_tool("jar")
     JAR.parent.mkdir(exist_ok=True)
+    # Stage classes and the new JAR beside the destination. Replace the existing artifact
+    # only after compilation and packaging both succeed.
     with TemporaryDirectory(prefix="compile-", dir=JAR.parent) as directory:
         work = Path(directory)
         classes = work / "classes"
         classes.mkdir()
+        # Target Java 17 APIs and bytecode even if the selected JDK is newer.
         subprocess.run([javac, "--release", "17", "-encoding", "UTF-8",
                         "-d", classes, *sources], check=True)
         if not (classes / "reservation" / "Main.class").is_file():

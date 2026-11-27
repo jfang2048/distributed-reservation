@@ -19,6 +19,7 @@ final class Client {
         TxId id = new TxId(coordinator.id(), request.uuid());
         Message reserve = new Message(Type.RESERVE, id, "", List.of(), request.items(), "");
 
+        // Print the ID before the first send so the caller can retry even if the reply never arrives.
         System.out.println("TX_ID " + request.uuid());
         System.out.flush();
         System.out.println(reserve(config, coordinator, reserve));
@@ -30,6 +31,8 @@ final class Client {
         long waitMs = config.voteTimeoutMs() + 2L * config.readTimeoutMs();
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(waitMs);
         long retryDelay = TimeUnit.MILLISECONDS.toNanos(config.retryDelayMs());
+        // Poll by resending the same request. A transport error leaves the outcome unknown
+        // because the coordinator may already have accepted it.
         do {
             Message response;
             try {
