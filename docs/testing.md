@@ -2,7 +2,6 @@
 
 Start with the [laptop testbed](testbed.md).
 Run `./scripts/test.sh` with a JDK 17 or newer and Python 3.
-Run `./verification/check.sh` for the [2PC model and code checks](../.agents/skills/verify-atomic-reservation/SKILL.md).
 Put codec and log tests in `tests/unit/` and multi-node cases in
 `tests/integration/`.
 Record the key, fault point, votes, decision, and item state in each test.
