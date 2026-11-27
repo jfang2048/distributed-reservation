@@ -44,7 +44,8 @@ GUEST
 done
 
 for node in a b; do
-    lab_ssh "$node" "sudo -n systemctl enable --now reservation@$node.service"
+    lab_ssh "$node" "sudo -n systemctl enable --now reservation@$node.service &&
+        sudo -n sync -f /opt/reservation /etc/systemd/system"
 done
 mkdir -p "$LAB_ROOT/run/vm/config"
 cp -- "$config" "$LAB_ROOT/run/vm/config/cluster.properties"
