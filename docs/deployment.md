@@ -35,10 +35,11 @@ Check that the addresses also work from any client or peer inside the LAN.
 TCP messages rely on the network for access control and encryption. Use a
 trusted LAN or private VPN for the client and both servers.
 
-## Linux and Windows
+## Run on separate machines
 
-Use Java 17 or newer on each machine. Build the JAR with `./scripts/build.sh`
-on the development machine. Copy `build/reservation.jar` and
+Use Java 17 or newer on each machine. Build the JAR with `python3 scripts/build.py`
+on the development machine. On Windows, use `py -3` or `python` in place of
+`python3`. Copy `build/reservation.jar` and
 `config/cluster.properties` to the same relative paths on each destination.
 Run from their parent directory in a shell or PowerShell. Start one server
 per node and run `reserve` on the client machine.
@@ -57,6 +58,6 @@ retry, pass `--tx-id <uuid>` with the original coordinator and items.
 
 After startup, check both endpoints from the client and each server's
 endpoint from its peer. Allow the configured TCP ports in each server's
-firewall. Use `nc -vz 192.168.1.22 7002` on Linux or
+firewall. Use `nc -vz 192.168.1.22 7002` on Linux or macOS, or
 `Test-NetConnection 192.168.1.22 -Port 7002` in PowerShell. Then reserve
 `projector camera` and check the decision on both servers.

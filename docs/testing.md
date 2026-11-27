@@ -1,7 +1,8 @@
 # Tests and LAN Demo
 
-Start with the [laptop testbed](testbed.md).
-Run `./scripts/test.sh` with a JDK 17 or newer and Python 3.
+Start with the [single-machine setup](testbed.md).
+Run `python3 scripts/test.py` with a JDK 17 or newer and Python 3.10 or newer.
+On Windows, use `py -3` or `python` in place of `python3`.
 Put codec and log tests in `tests/unit/` and multi-node cases in
 `tests/integration/`.
 Record the key, fault point, votes, decision, and item state in each test.

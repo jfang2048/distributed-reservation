@@ -55,12 +55,14 @@ See [decision rules](docs/protocol.md#prepare-and-decide) and
 
 ```text
 distributed-reservation/
+├── .github/
+│   └── workflows/
+│       └── test.yml                   # Linux, macOS, and Windows CI
 ├── .gitignore
 ├── README.md
 ├── config/                            # Cluster profiles
 │   ├── cluster.lan.properties.example # Physical machines
-│   ├── cluster.local.properties       # Loopback
-│   └── cluster.vm.properties          # Two-VM lab
+│   └── cluster.local.properties       # Loopback
 ├── docs/                              # Design and run guides
 │   ├── architecture.md
 │   ├── deployment.md
@@ -70,20 +72,10 @@ distributed-reservation/
 │   ├── requirements.md
 │   ├── testbed.md
 │   └── testing.md
-├── infra/                             # VM setup and fault experiments
-│   ├── cloud-init.yaml
-│   ├── collect-logs.sh
-│   ├── deploy.sh
-│   ├── fault.sh
-│   ├── lib.sh
-│   ├── network.sh
-│   ├── provision.sh
-│   ├── reservation@.service
-│   └── reset.sh
 ├── scripts/                           # Local development commands
-│   ├── build.sh                       # Build the JAR
-│   ├── local.sh                       # Run on loopback
-│   └── test.sh                        # Run the test suite
+│   ├── build.py                       # Build the JAR
+│   ├── local.py                       # Run on loopback
+│   └── test.py                        # Run the test suite
 ├── src/                               # Java application
 │   └── reservation/
 │       ├── Client.java
@@ -111,6 +103,7 @@ distributed-reservation/
 
 ## Run
 
-Run `./scripts/test.sh` with a JDK 17 or newer and Python 3. Use the
-[laptop testbed](docs/testbed.md) or the [deployment guide](docs/deployment.md)
-to run the application.
+Clone the repository or download its ZIP. Install JDK 17 or newer and Python
+3.10 or newer. Run `python3 scripts/test.py` on Linux or macOS, or
+`py -3 scripts/test.py` on Windows. Then use the [single-machine setup](docs/testbed.md)
+or the [deployment guide](docs/deployment.md).
