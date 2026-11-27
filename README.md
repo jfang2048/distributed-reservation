@@ -3,12 +3,11 @@
 A Java 17 reservation system. Servers use Two-Phase Commit (2PC) over TCP
 to reserve items in one transaction and recover them after a crash.
 
-Politecnico di Milano · Distributed Systems (090950) · [Project 2](docs/requirements.md) · 2026/2027
+Politecnico di Milano · Distributed Systems (090950) · [Project 2](docs/testing.md#course-demo) · 2026/2027
 
 ## Architecture
 
-One server can act as both coordinator and participant for the same request.
-See [server roles and locks](docs/architecture.md).
+See [server roles and locks](docs/protocol.md#roles-and-keys).
 
 ```mermaid
 flowchart LR
@@ -49,7 +48,7 @@ sequenceDiagram
 ```
 
 See [decision rules](docs/protocol.md#prepare-and-decide) and
-[restart behavior](docs/recovery.md#replay).
+[restart behavior](docs/protocol.md#replay).
 
 ## Project structure
 
@@ -63,15 +62,10 @@ distributed-reservation/
 ├── config/                            # Cluster profiles
 │   ├── cluster.lan.properties.example # Physical machines
 │   └── cluster.local.properties       # Loopback
-├── docs/                              # Design and run guides
-│   ├── architecture.md
-│   ├── deployment.md
-│   ├── implementation.md
-│   ├── protocol.md
-│   ├── recovery.md
-│   ├── requirements.md
-│   ├── testbed.md
-│   └── testing.md
+├── docs/
+│   ├── deployment.md                  # Build, run, and configure
+│   ├── protocol.md                    # 2PC and recovery
+│   └── testing.md                     # Tests and course demo
 ├── scripts/                           # Local development commands
 │   ├── build.py                       # Build the JAR
 │   ├── local.py                       # Run on loopback
@@ -103,7 +97,5 @@ distributed-reservation/
 
 ## Run
 
-Clone the repository or download its ZIP. Install JDK 17 or newer and Python
-3.10 or newer. Run `python3 scripts/test.py` on Linux or macOS, or
-`py -3 scripts/test.py` on Windows. Then use the [single-machine setup](docs/testbed.md)
-or the [deployment guide](docs/deployment.md).
+Use the [deployment guide](docs/deployment.md) to run on one machine or across
+a LAN. See [tests and the course demo](docs/testing.md) to check the behavior.

@@ -1,40 +1,23 @@
-# Messages and Two-Phase Commit
+# Protocol and Recovery
 
-## Transaction key
+## Roles and keys
 
-The client generates a UUID and pairs it with the coordinator's node ID.
-After a disconnect or `PENDING` reply, retry at the same coordinator with
-the same key and items. The coordinator stores the sorted item IDs. Reusing
-the key with different items returns `ID_CONFLICT` after a request is stored.
-An [unseen key closed by a decision query](recovery.md#replay) returns `ABORTED`.
+A transaction has one coordinator and one participant per resource owner.
+The coordinator can also vote as a participant. Each item belongs to one
+server and can be reserved once. Servers follow the protocol, restart after
+crashes, and use stable local storage. Network interruptions eventually heal.
 
-## TCP messages
-
-Read and validate a full frame before handling it. A four-byte length covers
-the rest of the frame, up to 1 MiB. Next come version byte `1`, the type byte,
-the coordinator ID, the UUID, and the sender ID for node messages. Use UTF-8
-text with a four-byte byte count and lists with a four-byte item count.
-All counts are big-endian. A participant entry is node ID, host, and
-four-byte TCP port. Encode the result and decision values below as text.
-Check node IDs and addresses against configuration.
-
-| Type | Message | Body |
-| --- | --- | --- |
-| 1 | `RESERVE` | Item IDs |
-| 2 | `RESULT` | `COMMITTED`, `ABORTED`, `PENDING`, `ID_CONFLICT`, or `INVALID_REQUEST` |
-| 3 | `PREPARE` | Full participant list, then the receiver's item IDs |
-| 4 / 5 | `VOTE_COMMIT` / `VOTE_ABORT` | |
-| 6 / 7 | `GLOBAL_COMMIT` / `GLOBAL_ABORT` | |
-| 8 | `ACK` | `COMMITTED` or `ABORTED` |
-| 9 | `DECISION_REQUEST` | Full participant list from `PREPARE` |
-| 10 | `DECISION_REPLY` | `COMMITTED`, `ABORTED`, `VOTE_ABORT`, or `PENDING` |
+The client uses a UUID and the coordinator ID as the transaction key. A
+retry reuses both and the original items. Changing the items for a recorded
+request returns `ID_CONFLICT`. See [Wire.java](../src/reservation/Wire.java)
+for versioned TCP framing and message fields.
 
 ## Prepare and decide
 
-The [commit flow](../README.md#commit-flow) shows the message order.
-**Force** means write the record to stable storage.
-The coordinator returns `INVALID_REQUEST` before starting a transaction if
-its log record or peer messages exceed the frame limit.
+The [commit flow](../README.md#commit-flow) shows the messages and durable
+writes. A participant tries to claim all its local items at once during
+`PREPARE`. It votes abort if any item is held or reserved. A durable yes
+vote moves it to `READY`. It holds its locks until it applies the decision.
 
 ```mermaid
 flowchart TD
@@ -44,25 +27,39 @@ flowchart TD
     Wait -->|Still waiting within the deadline| Wait
 ```
 
-Abort follows the same delivery and ACK steps as commit. The client then
-receives `ABORTED` on retry.
-
-- A yes vote puts a participant in `READY` and lets it accept commit. An
-  early abort closes the key to late prepares.
-- Participants reuse saved votes and ACKs on redelivery. The coordinator
-  counts each once per listed participant and retries decision delivery.
-  Until `END`, a client retry can return `PENDING`.
+Both outcomes use the same delivery and ACK steps. Participants reuse
+durable votes and ACKs on redelivery. The coordinator retries missing ACKs
+and returns the final result on retry after `END`.
 
 ## Decision requests
 
-A `READY` participant asks the coordinator or peers from its saved list.
-A peer with a saved decision shares it. A peer can also prove abort with a
-durable no vote. An `INIT` peer can force that vote before replying and
-reject late prepares. Serialize this step with prepare for the same key.
+A `READY` participant can ask the coordinator or a listed peer. A peer can
+share its saved decision or prove abort with a durable no vote. A peer that
+has yet to vote can record no before replying, which also rejects late
+`PREPARE` messages. If every peer is still `READY` and the coordinator is
+unreachable, participants keep their locks and retry.
 
-A `READY` peer still waiting for the outcome replies `PENDING`. When all
-participants reply `PENDING` and the coordinator is unreachable, they
-keep their locks and retry until the coordinator recovers. After learning
-the outcome from a peer, a participant still ACKs the coordinator's decision.
+## Replay
 
-See `07-agreement.pdf`, slides 7–11, and the [restart rules](recovery.md).
+Each node [keeps a transaction log](deployment.md#settings). Records carry
+the role, transaction key, length, and CRC32. The server forces records before
+sending the corresponding messages. Replay truncates an incomplete tail and
+stops on checksum errors or inconsistent records.
+
+```mermaid
+flowchart TD
+    Last{"Last coordinator record?"}
+    Last -->|START_2PC| Abort["Force GLOBAL_ABORT"]
+    Last -->|GLOBAL_COMMIT or GLOBAL_ABORT| Resend["Send the decision to all participants"]
+    Abort --> Resend
+    Resend --> Finish["Collect all ACKs, then force END"]
+    Last -->|END| Saved["Return the saved result on retry"]
+    Finish --> Saved
+```
+
+Participants restore committed items and unresolved `READY` locks, then
+resume decision queries. On a valid participant query for an unseen key, the
+coordinator records abort and closes that key to a delayed first request.
+Completed outcomes stay in the log for retries.
+
+See `07-agreement.pdf`, slides 7–11, for 2PC and blocking.

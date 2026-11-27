@@ -1,56 +1,42 @@
-# Tests and LAN Demo
+# Tests and Course Demo
 
-Start with the [single-machine setup](testbed.md).
-Run `python3 scripts/test.py` with a JDK 17 or newer and Python 3.10 or newer.
-On Windows, use `py -3` or `python` in place of `python3`.
-Put codec and log tests in `tests/unit/` and multi-node cases in
-`tests/integration/`.
-Record the key, fault point, votes, decision, and item state in each test.
-Restart with the same directories.
+## Automated tests
 
-## Checks
+Run `python3 scripts/test.py` from the repository root. Use `py -3` or
+`python` on Windows. The suite builds the JAR and checks networking,
+conflicting requests, retries, log replay, and crash recovery.
 
-| Case | Expected result |
+## Fault injection
+
+Set `fault.node` and `fault.point` in the active properties file. Set
+`fault.txId` to target one transaction. Use `fault.action=halt` to exit or
+`pause` to inspect peers before stopping the process. Remove the settings
+and reuse the log directory on restart.
+
+| Point | Expected behavior |
 | --- | --- |
-| Reserve across two servers | Both apply commit, then the client sees `COMMITTED`. |
-| Include an unavailable item | The request aborts and any prepared locks are released. |
-| Run conflicting and disjoint requests | At most one conflicting request commits. Both disjoint requests can commit. |
-| Prepare two requests in opposite order | A held item triggers a no vote. Both requests may abort. |
-| Ask for an item owned by the coordinator | The local vote and ACK count. Restart restores both roles. |
-| Retry a key, then change its items | The retry gets the original result. Changed items get `ID_CONFLICT`. |
-| Query an unseen key, then send its first request | The coordinator records abort and rejects the late start. |
-| Replay an incomplete tail or a complete frame with a bad CRC | Drop the incomplete tail. Stop on the bad CRC. |
-
-## Crash points
-
-Set `fault.node`, `fault.point`, `fault.txId`, and `fault.action` in the
-active properties file. Use `halt` to exit or `pause` to inspect peers before
-stopping the process. Remove these settings before restarting. The server
-prints `FAULT` with the point and transaction ID.
-
-| Stop here | Look for |
-| --- | --- |
-| `after-start` | Restart forces abort. |
-| `after-first-prepare` | The first voter can ask an unprepared peer for a durable no vote. |
-| `after-all-yes` | Peers hold their locks until the coordinator restarts and aborts. |
+| `after-start` | Restart records abort. |
+| `after-first-prepare` | A prepared peer can learn a durable no vote. |
+| `after-all-yes` | All participants hold their locks until the decision arrives. |
 | `after-decision` | Restart sends the saved decision. |
-| `after-first-decision` | A waiting peer can learn the decision from the first peer to ACK. |
-| `after-end` | Retrying returns the saved result. |
-| `before-vote` | Keep the participant down until the coordinator records abort. |
-| `after-vote` | Restart to see the prepared lock restored. |
-| `before-decision-log` | Restart asks for the decision or takes a retried message. |
-| `after-apply` | Replay applies the result and ACKs the retry. |
+| `after-first-decision` | A waiting peer can learn the decision from the peer that ACKed. |
+| `after-end` | The same transaction ID returns the saved result. |
+| `before-vote` | The coordinator aborts if the vote deadline passes. |
+| `after-vote` | Restart restores the prepared lock. |
+| `before-decision-log` | Restart learns the decision through retry or query. |
+| `after-apply` | Replay keeps the outcome and ACKs redelivery. |
 
-A forced process exit tests process recovery. Power-loss tests use a separate setup.
+## Course demo
 
-## LAN demo
+Use two laptops on the same LAN and a team of two or three. Present before
+the last official exam session. Use a few slides for the architecture and
+where each process runs. See `Progetti.pdf`, pp. 1–3.
 
-1. Use the [deployment settings](deployment.md). Start the coordinator and
-   participant A on laptop A, and participant B on laptop B.
-2. Show a cross-server commit and two requests for the same item.
-3. Stop the coordinator after both participants reach `READY` and before it
-   records a decision. Show `PENDING` replies and try a conflicting request.
-   Restart to show the abort and lock release. Then show the case where a
-   peer already knows commit.
-4. Use a few slides to show the components, process placement, and the logs
-   that explain why the transaction waited.
+1. Use the [LAN settings](deployment.md#on-a-lan). Start participants `a` and
+   `b` on different laptops. Add a third node `c` on either laptop with a
+   separate port and use `--coordinator c`.
+2. Show an all-or-nothing reservation across two servers and two requests
+   competing for the same item.
+3. Crash `c` at `after-all-yes`. Show the `READY` locks, a `PENDING` reply,
+   and how restart releases the locks after abort. Then use
+   `after-first-decision` to show a peer sharing the saved outcome.
