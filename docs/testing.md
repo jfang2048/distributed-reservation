@@ -1,6 +1,7 @@
 # Tests and LAN Demo
 
 Start with the [laptop testbed](testbed.md).
+Run `./scripts/test.sh` with a JDK 17 or newer and Python 3.
 Put codec and log tests in `tests/unit/` and multi-node cases in
 `tests/integration/`.
 Record the key, fault point, votes, decision, and item state in each test.
@@ -21,22 +22,23 @@ Restart with the same directories.
 
 ## Crash points
 
-Add a switch that pauses or exits a chosen node at a named point for one
-transaction. Use a pause to check what peers have received, then stop the
-process. Turn the fault off before restarting.
+Set `fault.node`, `fault.point`, `fault.txId`, and `fault.action` in the
+active properties file. Use `halt` to exit or `pause` to inspect peers before
+stopping the process. Remove these settings before restarting. The server
+prints `FAULT` with the point and transaction ID.
 
 | Stop here | Look for |
 | --- | --- |
-| Coordinator, after forced `START_2PC`, before prepare | Restart forces abort. |
-| Coordinator, after sending some prepares | A `READY` peer gets a durable no vote from `INIT`. A late prepare still gets no. |
-| Coordinator, after all yes votes, before forcing a decision | All peers stay `READY` until restart. Then abort releases their locks. |
-| Coordinator, after forcing commit, before sending it | Peers wait. Restart delivers commit. |
-| Coordinator, after one peer has recorded commit | A waiting peer learns commit from that peer. Restart delivers the decision and collects ACKs. |
-| Coordinator, after `END`, before the client reply | Retrying returns the saved result. |
-| Participant, before forcing its yes vote | Keep it down until the coordinator times out and records abort. |
-| Participant, after forcing yes, before replying | Restart before the decision to see the lock restored. |
-| Participant, after receiving the decision, before forcing it | Restart asks for the decision or takes the retried message. |
-| Participant, after forcing the decision, before ACK | Replay applies the result and ACKs the retry. |
+| `after-start` | Restart forces abort. |
+| `after-first-prepare` | The first voter can ask an unprepared peer for a durable no vote. |
+| `after-all-yes` | Peers hold their locks until the coordinator restarts and aborts. |
+| `after-decision` | Restart sends the saved decision. |
+| `after-first-decision` | A waiting peer can learn the decision from the first peer to ACK. |
+| `after-end` | Retrying returns the saved result. |
+| `before-vote` | Keep the participant down until the coordinator records abort. |
+| `after-vote` | Restart to see the prepared lock restored. |
+| `before-decision-log` | Restart asks for the decision or takes a retried message. |
+| `after-apply` | Replay applies the result and ACKs the retry. |
 
 `kill -9` tests process recovery. A power-loss test needs a separate setup.
 

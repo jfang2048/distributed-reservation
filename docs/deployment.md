@@ -28,10 +28,12 @@ Set optional values in the same file.
 | --- | --- |
 | Client on a third machine, servers on two LAN machines | Enter both servers' LAN IPs. For bridged VMs, use the guest IPs. For NAT VMs, use the reachable host IPs and forwarded ports. |
 | Client shares a machine with server `a` | Use the same two LAN addresses. Server `b` uses `a`'s LAN address for peer messages. |
-| Servers on public hosts | Use reachable public DNS names or IPs and allow TCP from the client and peer server at each firewall. For encrypted links, connect through a VPN and enter the VPN addresses. |
+| Servers on public hosts | Connect the machines through a private VPN and enter the VPN addresses. Allow TCP only from the trusted client and peer servers. |
 
 With NAT, forward each advertised TCP port to its server's listening port.
 Check that the addresses also work from any client or peer inside the LAN.
+TCP messages rely on the network for access control and encryption. Use a
+trusted LAN or private VPN for the client and both servers.
 
 ## Linux and Windows
 

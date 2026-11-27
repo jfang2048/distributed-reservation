@@ -1,7 +1,7 @@
 # Distributed Reservation System
 
-We're designing a Java 17 reservation system. Servers talk over TCP and use
-Two-Phase Commit (2PC) to reserve items in one transaction.
+A Java 17 reservation system. Servers use Two-Phase Commit (2PC) over TCP
+to reserve items in one transaction and recover them after a crash.
 
 Politecnico di Milano · Distributed Systems (090950) · Project 2 · 2026/2027
 
@@ -19,4 +19,5 @@ Politecnico di Milano · Distributed Systems (090950) · Project 2 · 2026/2027
 Java sources go in `src/` and tests in `tests/`. Settings live in `config/`,
 local commands in `scripts/`, and VM commands in `infra/`.
 
-Start with [TCP framing and log replay](docs/implementation.md#build-order).
+Run `./scripts/test.sh` with a JDK 17 or newer and Python 3. For a live
+run, follow the [laptop testbed](docs/testbed.md).

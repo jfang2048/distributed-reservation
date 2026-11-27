@@ -2,10 +2,11 @@
 set -euo pipefail
 source "$(dirname -- "$0")/lib.sh"
 
-(( $# <= 1 )) || lab_die 'Usage: ./infra/deploy.sh [jar]'
+(( $# <= 2 )) || lab_die 'Usage: ./infra/deploy.sh [jar [profile]]'
 jar=${1:-"$LAB_ROOT/build/reservation.jar"}
 [[ -s "$jar" ]] || lab_die 'Build build/reservation.jar with ./scripts/build.sh first.'
-config="$LAB_ROOT/config/cluster.vm.properties"
+config=${2:-"$LAB_ROOT/config/cluster.vm.properties"}
+[[ -r "$config" ]] || lab_die "Cannot read VM profile: $config"
 for node in a b; do
     lab_verify "$node"
 done

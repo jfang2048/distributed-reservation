@@ -20,25 +20,23 @@ and log entries. Load
 
 ## Build order
 
-Count weeks from the start of implementation.
-
-1. **Week 1 — TCP and log.** Use `ServerSocket.accept` and a bounded worker
+1. **TCP and log.** Use `ServerSocket.accept` and a bounded worker
    pool. Use connect and read timeouts. Read the length, check it, then use
    `readFully` for the frame body. Use the [message layout](protocol.md#tcp-messages)
    and [log layout](recovery.md#log-format). Test frame decoding and log replay.
-2. **Week 2 — Commit and abort.** Implement the [2PC state machine](protocol.md#prepare-and-decide).
+2. **Commit and abort.** Implement the [2PC state machine](protocol.md#prepare-and-decide).
    Give `Coordinator` a `WAIT` state and `Participant` the `INIT` and `READY`
    states. Process one event at a time per transaction and role. Force each
    required record before publishing its transition. Deliver vote deadlines
    as events. Queue peer sends after releasing the transaction guard. Route a
    local participant through the same handlers. Use the
    [resource lock rules](architecture.md#resources).
-3. **Week 3 — Recovery and retries.** Rebuild both roles and the resource table
+3. **Recovery and retries.** Rebuild both roles and the resource table
    from the log before accepting connections. Schedule retries as events.
    Use the [restart rules](recovery.md#replay),
    [transaction key](protocol.md#transaction-key), and
    [decision requests](protocol.md#decision-requests). Run the
    [crash tests](testing.md#crash-points).
-4. **Week 4 — Concurrency and demo.** Run the
+4. **Concurrency and demo.** Run the
    [reservation checks](testing.md#checks) and rehearse the
    [LAN demo](testing.md#lan-demo). Prepare the slides from the demo logs.

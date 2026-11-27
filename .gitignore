@@ -6,6 +6,7 @@
 /config/cluster.properties
 *.class
 *.log
+__pycache__/
 /.idea/
 /.vscode/
 *.iml

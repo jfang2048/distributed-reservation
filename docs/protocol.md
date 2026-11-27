@@ -5,7 +5,8 @@
 The client generates a UUID and pairs it with the coordinator's node ID.
 After a disconnect or `PENDING` reply, retry at the same coordinator with
 the same key and items. The coordinator stores the sorted item IDs. Reusing
-the key with different items returns `ID_CONFLICT`.
+the key with different items returns `ID_CONFLICT` after a request is stored.
+An [unseen key closed by a decision query](recovery.md#replay) returns `ABORTED`.
 
 ## TCP messages
 
@@ -20,7 +21,7 @@ Check node IDs and addresses against configuration.
 | Type | Message | Body |
 | --- | --- | --- |
 | 1 | `RESERVE` | Item IDs |
-| 2 | `RESULT` | `COMMITTED`, `ABORTED`, `PENDING`, or `ID_CONFLICT` |
+| 2 | `RESULT` | `COMMITTED`, `ABORTED`, `PENDING`, `ID_CONFLICT`, or `INVALID_REQUEST` |
 | 3 | `PREPARE` | Full participant list, then the receiver's item IDs |
 | 4 / 5 | `VOTE_COMMIT` / `VOTE_ABORT` | |
 | 6 / 7 | `GLOBAL_COMMIT` / `GLOBAL_ABORT` | |
@@ -31,6 +32,8 @@ Check node IDs and addresses against configuration.
 ## Prepare and decide
 
 In the diagram, **force** means write the record to stable storage.
+The coordinator returns `INVALID_REQUEST` before starting a transaction if
+its log record or peer messages exceed the frame limit.
 
 ```mermaid
 flowchart TD

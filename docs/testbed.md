@@ -49,10 +49,11 @@ Check ports `7001` and `7002` after log replay before running the client.
 | `./infra/collect-logs.sh` | Save both nodes' logs under `run/`. |
 | `./infra/reset.sh --yes` | Clear both lab nodes' transaction data and restore the testbed. |
 
-For tests with a separate coordinator, add `node.c.host=192.168.151.1`
-and `node.c.port=7003` to the VM profile. Deploy the profile again, run
-`server --node c` from `run/vm` on the laptop, and reserve with
-`--coordinator c`.
+For tests with a separate coordinator, copy the VM profile to `run/` and add
+`node.c.host=192.168.151.1` and `node.c.port=7003`. Pass that profile as the
+second argument to `./infra/deploy.sh build/reservation.jar`. Run
+`java -jar ../../build/reservation.jar server --node c` from `run/vm` on the
+laptop and reserve with `--coordinator c`.
 
 Use the [test plan](testing.md) for expected outcomes. Use the
 [deployment guide](deployment.md) when moving to other machines.
